@@ -32,3 +32,31 @@ class EventInjectResponse(BaseModel):
     type: str
     matched_hooks: list[str]
     executions: list[ExecutionSummary]
+
+
+class StatePutRequest(BaseModel):
+    key: str = "execution"
+    value: dict[str, Any] = Field(default_factory=dict)
+
+
+class StatePutResponse(BaseModel):
+    event_id: str
+    key: str
+    value: dict[str, Any]
+
+
+class StateGetResponse(BaseModel):
+    event_id: str
+    key: str
+    value: dict[str, Any] | None
+
+
+class EventListItem(BaseModel):
+    id: str
+    source: str
+    type: str
+    time: str
+
+
+class EventListResponse(BaseModel):
+    events: list[EventListItem]

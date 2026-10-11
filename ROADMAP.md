@@ -22,8 +22,8 @@ Repo: https://github.com/fritzprix/pboy/issues
 M1 Daemon spine
   #1  Daemon + /healthz          ✅
   #2  POST /v1/events inject     ✅
-  #3  PB_DAEMON_URL-aware CLI    ← next
-  #4  Schema migrations
+  #3  PB_DAEMON_URL-aware CLI    ✅
+  #4  Schema migrations          ← next
        │
 M2 First channel
   #5  ChannelAdapter interface

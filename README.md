@@ -72,6 +72,14 @@ curl -sX POST http://127.0.0.1:8080/v1/events \
   -d '{"source":"jira","payload":{...},"dispatch":true}'
 ```
 
+하네스/CLI가 데몬 DB에 쓰려면 **`PB_DAEMON_URL`을 명시**하세요 (미설정 시 로컬 SQLite 직접 접근):
+
+```bash
+export PB_DAEMON_URL=http://127.0.0.1:8080
+pboy state put --event-id "$PB_EVENT_ID" --status running --progress 50
+pboy event list
+```
+
 채널 수신은 아직 없습니다 (`ROADMAP.md` M2).
 
 ## 수동으로 돌려보기 (Alpha)

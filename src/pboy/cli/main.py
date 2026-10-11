@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, NoReturn, TypeVar
 
+import httpx
 import typer
 from pydantic import ValidationError
 
 import pboy
+from pboy.cli.daemon_client import DaemonClient, resolve_daemon_url
 from pboy.models.hook import HookCreate
 from pboy.store.sqlite import SQLiteStore
 
@@ -157,6 +159,11 @@ def hook_delete(
     _run_with_store(_run)
 
 
+def _daemon_http_error(exc: httpx.HTTPError) -> NoReturn:
+    typer.echo(f"Daemon request failed: {exc}", err=True)
+    raise typer.Exit(code=1) from exc
+
+
 # ── State ────────────────────────────────────────────────────────────────────
 @state_app.command("put")
 def state_put(
@@ -169,9 +176,21 @@ def state_put(
         bool, typer.Option("--broadcast", help="Broadcast status change (not yet implemented)")
     ] = False,
 ) -> None:
-    """Report harness execution state for an event."""
+    """Report harness execution state for an event.
+
+    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
+    """
+    payload = {"status": status, "progress": progress, "broadcast": broadcast}
+    daemon_url = resolve_daemon_url()
+    if daemon_url:
+        try:
+            DaemonClient(daemon_url).put_state(event_id, "execution", payload)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        typer.echo(f"State updated for event '{event_id}': status={status}, progress={progress}%")
+        return
+
     async def _run(store: SQLiteStore) -> None:
-        payload = {"status": status, "progress": progress, "broadcast": broadcast}
         await store.put_state(event_id, "execution", payload)
         typer.echo(f"State updated for event '{event_id}': status={status}, progress={progress}%")
 
@@ -182,7 +201,22 @@ def state_put(
 def state_get(
     event_id: Annotated[str, typer.Argument(help="CloudEvent ID")],
 ) -> None:
-    """Get harness execution state for an event."""
+    """Get harness execution state for an event.
+
+    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
+    """
+    daemon_url = resolve_daemon_url()
+    if daemon_url:
+        try:
+            st = DaemonClient(daemon_url).get_state(event_id, "execution")
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        if st is None:
+            typer.echo(f"No state found for event '{event_id}'.", err=True)
+        else:
+            typer.echo(str(st))
+        return
+
     async def _run(store: SQLiteStore) -> None:
         st = await store.get_state(event_id, "execution")
         if st is None:
@@ -198,7 +232,23 @@ def state_get(
 def event_list(
     limit: Annotated[int, typer.Option("--limit", "-n", help="Number of events to list")] = 20,
 ) -> None:
-    """List recently recorded events."""
+    """List recently recorded events.
+
+    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
+    """
+    daemon_url = resolve_daemon_url()
+    if daemon_url:
+        try:
+            events = DaemonClient(daemon_url).list_events(limit=limit)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        if not events:
+            typer.echo("No events found.")
+            return
+        for evt in events:
+            typer.echo(f"[{evt.time}] {evt.id} ({evt.source}) - {evt.type}")
+        return
+
     async def _run(store: SQLiteStore) -> None:
         events = await store.list_events(limit=limit)
         if not events:
@@ -214,7 +264,22 @@ def event_list(
 def event_get(
     event_id: Annotated[str, typer.Argument(help="Event ID")],
 ) -> None:
-    """Inspect a CloudEvent by ID."""
+    """Inspect a CloudEvent by ID.
+
+    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
+    """
+    daemon_url = resolve_daemon_url()
+    if daemon_url:
+        try:
+            evt = DaemonClient(daemon_url).get_event(event_id)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        if not evt:
+            typer.echo(f"Event '{event_id}' not found.", err=True)
+        else:
+            typer.echo(evt.model_dump_json(indent=2))
+        return
+
     async def _run(store: SQLiteStore) -> None:
         evt = await store.get_event(event_id)
         if not evt:

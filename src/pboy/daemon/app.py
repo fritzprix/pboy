@@ -7,13 +7,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 
 from pboy.core.engine import Engine
 from pboy.daemon.schemas import (
     EventInjectRequest,
     EventInjectResponse,
+    EventListItem,
+    EventListResponse,
     ExecutionSummary,
+    StateGetResponse,
+    StatePutRequest,
+    StatePutResponse,
 )
 from pboy.store.sqlite import SQLiteStore
 
@@ -78,5 +83,45 @@ def create_app(
                 for ex in executions
             ],
         )
+
+    @app.get("/v1/events", response_model=EventListResponse)
+    async def list_events(
+        request: Request,
+        limit: int = Query(default=20, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> EventListResponse:
+        eng: Engine = request.app.state.engine
+        events = await eng.store.list_events(limit=limit, offset=offset)
+        return EventListResponse(
+            events=[
+                EventListItem(id=e.id, source=e.source, type=e.type, time=e.time) for e in events
+            ]
+        )
+
+    @app.get("/v1/events/{event_id}")
+    async def get_event(event_id: str, request: Request) -> dict[str, Any]:
+        eng: Engine = request.app.state.engine
+        event = await eng.store.get_event(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail=f"Event '{event_id}' not found")
+        return event.model_dump()
+
+    @app.put("/v1/events/{event_id}/state", response_model=StatePutResponse)
+    async def put_state(
+        event_id: str, body: StatePutRequest, request: Request
+    ) -> StatePutResponse:
+        eng: Engine = request.app.state.engine
+        await eng.store.put_state(event_id, body.key, body.value)
+        return StatePutResponse(event_id=event_id, key=body.key, value=body.value)
+
+    @app.get("/v1/events/{event_id}/state", response_model=StateGetResponse)
+    async def get_state(
+        event_id: str,
+        request: Request,
+        key: str = Query(default="execution"),
+    ) -> StateGetResponse:
+        eng: Engine = request.app.state.engine
+        value = await eng.store.get_state(event_id, key)
+        return StateGetResponse(event_id=event_id, key=key, value=value)
 
     return app
