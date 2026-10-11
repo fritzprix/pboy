@@ -75,3 +75,36 @@ class HookCreateRequest(HookCreate):
 class HookDeleteResponse(BaseModel):
     deleted: bool
     name: str
+
+
+class ChannelStatusItem(BaseModel):
+    name: str
+    enabled: bool
+    running: bool
+    secret_key: str | None = None
+    has_secret: bool = False
+
+
+class ChannelListResponse(BaseModel):
+    channels: list[ChannelStatusItem]
+    env_override: bool = False
+
+
+class ChannelMutationResponse(BaseModel):
+    name: str
+    enabled: bool
+    running: bool
+
+
+class SecretPutRequest(BaseModel):
+    value: str = Field(min_length=1)
+
+
+class SecretPutResponse(BaseModel):
+    key: str
+    stored: bool = True
+
+
+class SecretStatusResponse(BaseModel):
+    key: str
+    exists: bool

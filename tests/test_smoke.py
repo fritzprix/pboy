@@ -34,7 +34,7 @@ def test_cli_help(cli_runner: CliRunner) -> None:
     assert res.exit_code == 0
     assert "Zero-Ops Agent Event Orchestrator" in res.output
 
-    for sub in ["daemon", "ui", "hook", "state", "event"]:
+    for sub in ["daemon", "ui", "hook", "state", "event", "channel"]:
         sub_res = cli_runner.invoke(app, [sub, "--help"])
         assert sub_res.exit_code == 0
 

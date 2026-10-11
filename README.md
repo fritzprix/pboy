@@ -4,8 +4,8 @@
 
 Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화하고, 매칭된 훅을 로컬 subprocess 하네스로 실행하는 도구입니다.
 
-> **Alpha 상태:** 코어 + 로컬 데몬(` /healthz`, `/v1/events`, `/v1/hooks`, state API)까지 동작합니다.
-> `ui`, `event complete`, 채널 어댑터는 아직 미구현이며 호출 시 non-zero로 실패합니다.
+> **Alpha 상태:** 코어 + 로컬 데몬 + 채널 레지스트리 + **Telegram long-poll**까지 동작합니다.
+> `ui`, `event complete`, Slack/Jira inbound는 아직 미구현입니다.
 
 ## 현재 동작하는 것
 
@@ -19,7 +19,10 @@ Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화�
 | `pboy daemon` + `/healthz` + `/v1/events` + `/v1/hooks` | ✅ |
 | Daemon auth (`PB_AUTH_TOKEN` / `X-PB-Token`) | ✅ |
 | `pboy ui` / `event complete` | ❌ 미구현 (명시적 실패) |
-| 채널 수신 (Slack/Telegram/Jira) | ❌ 미구현 |
+| Channel adapter registry (`PB_CHANNELS_ENABLED`) | ✅ |
+| Telegram long-poll inbound | ✅ (`PB_TELEGRAM_BOT_TOKEN` / secret) |
+| `pboy channel list/enable/disable/set-secret` | ✅ |
+| Slack / Jira / Confluence inbound | ❌ (M4) |
 
 Production 로드맵·백로그: [`ROADMAP.md`](ROADMAP.md) · [GitHub Issues](https://github.com/fritzprix/pboy/issues)
 
@@ -36,7 +39,9 @@ pip install -e ".[dev]"
 ```
 
 데이터/키 기본 경로: `~/.local/share/pboy/pboy.db`, `~/.config/pboy/secret.key`  
-환경변수: `PB_DATABASE_URL`, `PB_SECRET_KEY`, `PB_DAEMON_URL` 등 (`PB_` prefix).
+환경변수: `PB_DATABASE_URL`, `PB_SECRET_KEY`, `PB_DAEMON_URL`, `PB_CHANNELS_ENABLED`, `PB_TELEGRAM_BOT_TOKEN` 등 (`PB_` prefix).
+
+Telegram 설정: [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
 
 ## 테스트 실행
 
@@ -117,7 +122,22 @@ curl -sX POST "$PB_DAEMON_URL/v1/events" \
 pboy event list
 ```
 
-채널 수신은 아직 없습니다 (`ROADMAP.md` M2).
+## Telegram inbound
+
+```bash
+pboy channel set-secret telegram --value '<BotFather token>'
+pboy channel enable telegram
+
+export PB_AUTH_TOKEN=dev-secret
+pboy daemon --host 127.0.0.1 --port 8080
+
+# 다른 터미널 — 훅 등록 후 봇에게 메시지
+export PB_DAEMON_URL=http://127.0.0.1:8080
+pboy hook register --name tg-echo --topic 'telegram:message' --exec 'echo hi' --timeout 30
+pboy channel list
+```
+
+상세·BotFather 절차: [`src/pboy/channels/README.md`](src/pboy/channels/README.md). Slack/Jira inbound는 M4.
 
 ## 프로젝트 구조
 
@@ -126,7 +146,7 @@ pboy/
 ├── src/pboy/
 │   ├── cli/         # Typer CLI
 │   ├── core/        # Normalizer, Router, Lease, Engine, filters
-│   ├── channels/    # (planned) inbound adapters
+│   ├── channels/    # Telegram long-poll (+ fake); Slack later
 │   ├── store/       # SQLite + AES-GCM secrets
 │   ├── harness/     # Subprocess executor
 │   ├── ui/          # (planned) local dashboard

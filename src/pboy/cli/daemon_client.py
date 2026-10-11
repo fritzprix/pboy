@@ -120,3 +120,31 @@ class DaemonClient:
             return False
         response.raise_for_status()
         return bool(response.json().get("deleted"))
+
+    def list_channels(self) -> dict[str, Any]:
+        response = self._request("GET", "/v1/channels")
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def enable_channel(self, name: str) -> dict[str, Any]:
+        response = self._request("POST", f"/v1/channels/{name}/enable")
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def disable_channel(self, name: str) -> dict[str, Any]:
+        response = self._request("POST", f"/v1/channels/{name}/disable")
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def set_channel_secret(self, name: str, value: str) -> dict[str, Any]:
+        response = self._request(
+            "PUT",
+            f"/v1/channels/{name}/secret",
+            json={"value": value},
+        )
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body

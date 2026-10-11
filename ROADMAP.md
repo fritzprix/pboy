@@ -28,12 +28,12 @@ M1 Daemon spine
   #24 Operator smoke demo        ✅ (scripts/smoke_demo.sh + harness uvloop fix)
        │
 M2 First channel
-  #5  ChannelAdapter interface
-  #6  Telegram long-poll E2E
-  #7  channel CLI config
+  #5  ChannelAdapter interface   ✅
+  #6  Telegram long-poll E2E     ✅
+  #7  channel CLI config         ✅
        │
 M3 Outbound
-  #8  event complete persist
+  #8  event complete persist     ← next
   #9  sync telegram reply
        │
 M4 Multi-channel

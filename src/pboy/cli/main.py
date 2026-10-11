@@ -26,10 +26,12 @@ app = typer.Typer(
 hook_app = typer.Typer(help="Manage event hooks", no_args_is_help=True)
 state_app = typer.Typer(help="Manage and report harness event state", no_args_is_help=True)
 event_app = typer.Typer(help="Manage and inspect CloudEvents", no_args_is_help=True)
+channel_app = typer.Typer(help="Manage inbound channels and secrets", no_args_is_help=True)
 
 app.add_typer(hook_app, name="hook")
 app.add_typer(state_app, name="state")
 app.add_typer(event_app, name="event")
+app.add_typer(channel_app, name="channel")
 
 
 def version_callback(value: bool) -> None:
@@ -340,6 +342,181 @@ def event_complete(
     """Mark an event processing as complete."""
     del event_id, summary, sync  # reserved for future completion/sync wiring
     _not_implemented("event complete")
+
+
+# ── Channel ──────────────────────────────────────────────────────────────────
+@channel_app.command("list")
+def channel_list() -> None:
+    """List known channels, enablement, running state, and secret presence."""
+    client = _daemon_client_or_none()
+    if client is not None:
+        try:
+            body = client.list_channels()
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        if body.get("env_override"):
+            typer.echo("Note: PB_CHANNELS_ENABLED env override is active.")
+        for row in body.get("channels", []):
+            flags = []
+            flags.append("enabled" if row.get("enabled") else "disabled")
+            flags.append("running" if row.get("running") else "stopped")
+            if row.get("secret_key"):
+                flags.append("secret=yes" if row.get("has_secret") else "secret=no")
+            typer.echo(f"• {row.get('name')} [{', '.join(flags)}]")
+        return
+
+    async def _run(store: SQLiteStore) -> None:
+        from pboy.channels.registry import ChannelRegistry
+        from pboy.core.config import get_settings
+
+        # list-only registry (no emit side effects)
+        async def _noop_emit(*_a: Any, **_k: Any) -> None:
+            return None
+
+        reg = ChannelRegistry(emit=_noop_emit, store=store, settings=get_settings())
+        status = await reg.status()
+        if status.get("env_override"):
+            typer.echo("Note: PB_CHANNELS_ENABLED env override is active.")
+        for row in await reg.list_status():
+            flags = []
+            flags.append("enabled" if row["enabled"] else "disabled")
+            flags.append("running" if row["running"] else "stopped")
+            if row["secret_key"]:
+                flags.append("secret=yes" if row["has_secret"] else "secret=no")
+            typer.echo(f"• {row['name']} [{', '.join(flags)}]")
+
+    _run_with_store(_run)
+
+
+@channel_app.command("enable")
+def channel_enable(
+    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram)")],
+) -> None:
+    """Enable a channel (persisted in store unless PB_CHANNELS_ENABLED overrides)."""
+    client = _daemon_client_or_none()
+    if client is not None:
+        try:
+            body = client.enable_channel(name)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        typer.echo(f"Channel '{body.get('name')}' enabled (running={body.get('running')}).")
+        return
+
+    async def _run(store: SQLiteStore) -> None:
+        from pboy.channels.registry import ChannelRegistry
+        from pboy.core.config import get_settings
+
+        async def _noop_emit(*_a: Any, **_k: Any) -> None:
+            return None
+
+        reg = ChannelRegistry(emit=_noop_emit, store=store, settings=get_settings())
+        try:
+            # Persist only — starting adapters requires the daemon process.
+            enabled = await reg.resolve_enabled_names()
+            key = name.strip().lower()
+            if key not in reg.known_names():
+                raise ValueError(f"Unknown channel '{key}'. Known: {', '.join(reg.known_names())}")
+            if key not in enabled:
+                enabled.append(key)
+                from pboy.channels.config import (
+                    env_channels_enabled_override,
+                    save_enabled_to_store,
+                )
+
+                if env_channels_enabled_override() is None:
+                    await save_enabled_to_store(store, enabled)
+                else:
+                    typer.echo(
+                        "PB_CHANNELS_ENABLED is set; store not updated. "
+                        "Unset it or include the channel in the env list.",
+                        err=True,
+                    )
+                    raise typer.Exit(code=1)
+            typer.echo(
+                f"Channel '{key}' enabled in store. Restart (or use daemon CLI) to start polling."
+            )
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+
+    _run_with_store(_run)
+
+
+@channel_app.command("disable")
+def channel_disable(
+    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram)")],
+) -> None:
+    """Disable a channel in the persisted enable list."""
+    client = _daemon_client_or_none()
+    if client is not None:
+        try:
+            body = client.disable_channel(name)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        typer.echo(f"Channel '{body.get('name')}' disabled (running={body.get('running')}).")
+        return
+
+    async def _run(store: SQLiteStore) -> None:
+        from pboy.channels.config import (
+            env_channels_enabled_override,
+            load_enabled_from_store,
+            save_enabled_to_store,
+        )
+
+        key = name.strip().lower()
+        if env_channels_enabled_override() is not None:
+            typer.echo(
+                "PB_CHANNELS_ENABLED is set; store not updated. Unset it to use persisted config.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        enabled = [n for n in await load_enabled_from_store(store) if n != key]
+        await save_enabled_to_store(store, enabled)
+        typer.echo(f"Channel '{key}' disabled in store. Restart daemon if it was running.")
+
+    _run_with_store(_run)
+
+
+@channel_app.command("set-secret")
+def channel_set_secret(
+    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram)")],
+    value: Annotated[
+        str | None,
+        typer.Option("--value", help="Secret value (prefer env/store over shell history)"),
+    ] = None,
+) -> None:
+    """Store an encrypted channel secret (e.g. telegram bot token)."""
+    secret_value = value
+    if secret_value is None:
+        secret_value = typer.prompt("Secret value", hide_input=True)
+    if not secret_value.strip():
+        typer.echo("Secret value must not be empty.", err=True)
+        raise typer.Exit(code=1)
+
+    client = _daemon_client_or_none()
+    if client is not None:
+        try:
+            body = client.set_channel_secret(name, secret_value)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        typer.echo(f"Stored secret '{body.get('key')}' for channel '{name}'.")
+        return
+
+    async def _run(store: SQLiteStore) -> None:
+        from pboy.channels.config import secret_key_for_channel
+
+        key = name.strip().lower()
+        secret_key = secret_key_for_channel(key)
+        if secret_key is None:
+            typer.echo(
+                f"Channel '{key}' has no secret mapping (supported: telegram).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        await store.put_secret(secret_key, secret_value.strip())
+        typer.echo(f"Stored secret '{secret_key}' for channel '{key}'.")
+
+    _run_with_store(_run)
 
 
 def main() -> None:

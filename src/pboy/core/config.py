@@ -39,9 +39,29 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Inbound channels: comma-separated adapter names (e.g. "fake,telegram").
+    # Empty means no channel adapters start with the daemon.
+    channels_enabled: str = ""
+
+    # Telegram Bot API token (optional). Prefer store secret ``telegram.bot_token``;
+    # env wins when both are set.
+    telegram_bot_token: str = ""
+
     # Paths
     config_dir: Path = Path.home() / ".config" / "pboy"
     data_dir: Path = Path.home() / ".local" / "share" / "pboy"
+
+    def enabled_channel_names(self) -> list[str]:
+        """Parse ``PB_CHANNELS_ENABLED`` into unique lowercase adapter names."""
+        names: list[str] = []
+        seen: set[str] = set()
+        for part in self.channels_enabled.split(","):
+            name = part.strip().lower()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+        return names
 
     @property
     def db_path(self) -> Path:

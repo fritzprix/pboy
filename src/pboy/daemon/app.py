@@ -9,9 +9,15 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
+from pboy.channels.base import ChannelAdapter
+from pboy.channels.registry import ChannelRegistry
+from pboy.core.config import Settings, get_settings
 from pboy.core.engine import Engine
 from pboy.daemon.auth import require_daemon_auth
 from pboy.daemon.schemas import (
+    ChannelListResponse,
+    ChannelMutationResponse,
+    ChannelStatusItem,
     EventInjectRequest,
     EventInjectResponse,
     EventListItem,
@@ -20,6 +26,9 @@ from pboy.daemon.schemas import (
     HookCreateRequest,
     HookDeleteResponse,
     HookListResponse,
+    SecretPutRequest,
+    SecretPutResponse,
+    SecretStatusResponse,
     StateGetResponse,
     StatePutRequest,
     StatePutResponse,
@@ -31,10 +40,13 @@ from pboy.store.sqlite import SQLiteStore
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine: Engine = app.state.engine
+    registry: ChannelRegistry = app.state.channel_registry
     await engine.start()
+    await registry.start_enabled()
     try:
         yield
     finally:
+        await registry.stop_all()
         await engine.stop()
 
 
@@ -42,10 +54,16 @@ def create_app(
     *,
     db_path: str | Path | None = None,
     secret_key: str | None = None,
+    settings: Settings | None = None,
+    extra_adapters: list[ChannelAdapter] | None = None,
 ) -> FastAPI:
-    """Build daemon app with a dedicated Engine/store lifecycle."""
+    """Build daemon app with a dedicated Engine/store/channel lifecycle."""
     store = SQLiteStore(db_path=db_path, secret_key=secret_key)
     engine = Engine(store=store)
+    cfg = settings or get_settings()
+    registry = ChannelRegistry(emit=engine.process_event, store=store, settings=cfg)
+    for adapter in extra_adapters or []:
+        registry.register(adapter)
 
     app = FastAPI(
         title="Pageboy Daemon",
@@ -54,13 +72,16 @@ def create_app(
     )
     app.state.engine = engine
     app.state.db_path = str(store.db_path)
+    app.state.channel_registry = registry
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, Any]:
+    async def healthz(request: Request) -> dict[str, Any]:
+        reg: ChannelRegistry = request.app.state.channel_registry
         return {
             "status": "ok",
             "service": "pboy-daemon",
             "db_path": app.state.db_path,
+            "channels": await reg.status(),
         }
 
     @app.post(
@@ -163,5 +184,81 @@ def create_app(
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Hook '{name}' not found")
         return HookDeleteResponse(deleted=True, name=name)
+
+    @app.get("/v1/channels", response_model=ChannelListResponse)
+    async def list_channels(request: Request) -> ChannelListResponse:
+        reg: ChannelRegistry = request.app.state.channel_registry
+        status = await reg.status()
+        rows = await reg.list_status()
+        return ChannelListResponse(
+            channels=[ChannelStatusItem.model_validate(row) for row in rows],
+            env_override=bool(status.get("env_override")),
+        )
+
+    @app.post(
+        "/v1/channels/{name}/enable",
+        response_model=ChannelMutationResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
+    async def enable_channel(name: str, request: Request) -> ChannelMutationResponse:
+        reg: ChannelRegistry = request.app.state.channel_registry
+        try:
+            await reg.enable(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        enabled = name.strip().lower() in await reg.resolve_enabled_names()
+        return ChannelMutationResponse(
+            name=name.strip().lower(),
+            enabled=enabled,
+            running=name.strip().lower() in reg.running,
+        )
+
+    @app.post(
+        "/v1/channels/{name}/disable",
+        response_model=ChannelMutationResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
+    async def disable_channel(name: str, request: Request) -> ChannelMutationResponse:
+        reg: ChannelRegistry = request.app.state.channel_registry
+        await reg.disable(name)
+        key = name.strip().lower()
+        return ChannelMutationResponse(
+            name=key,
+            enabled=key in await reg.resolve_enabled_names(),
+            running=key in reg.running,
+        )
+
+    @app.put(
+        "/v1/secrets/{key:path}",
+        response_model=SecretPutResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
+    async def put_secret(key: str, body: SecretPutRequest, request: Request) -> SecretPutResponse:
+        eng: Engine = request.app.state.engine
+        await eng.store.put_secret(key, body.value)
+        return SecretPutResponse(key=key, stored=True)
+
+    @app.get("/v1/secrets/{key:path}/status", response_model=SecretStatusResponse)
+    async def secret_status(key: str, request: Request) -> SecretStatusResponse:
+        eng: Engine = request.app.state.engine
+        exists = (await eng.store.get_secret(key)) is not None
+        return SecretStatusResponse(key=key, exists=exists)
+
+    @app.put(
+        "/v1/channels/{name}/secret",
+        response_model=SecretPutResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
+    async def put_channel_secret(
+        name: str, body: SecretPutRequest, request: Request
+    ) -> SecretPutResponse:
+        reg: ChannelRegistry = request.app.state.channel_registry
+        try:
+            secret_key = await reg.set_channel_secret(name, body.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return SecretPutResponse(key=secret_key, stored=True)
 
     return app
