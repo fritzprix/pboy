@@ -100,9 +100,8 @@ STORE_REQUIRED_METHODS: Final[tuple[str, ...]] = (
 )
 
 # ── CLI surface ──────────────────────────────────────────────────────────────
-CLI_IMPLEMENTED_GROUPS: Final[tuple[str, ...]] = ("hook", "state", "event")
+CLI_IMPLEMENTED_GROUPS: Final[tuple[str, ...]] = ("hook", "state", "event", "daemon")
 CLI_NOT_IMPLEMENTED: Final[tuple[tuple[str, ...], ...]] = (
-    ("daemon",),
     ("ui",),
     ("event", "complete", "evt_contract_probe"),
 )

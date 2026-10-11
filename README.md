@@ -16,8 +16,11 @@ Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화�
 | `pboy event list/get` | ✅ |
 | Engine: normalize → store → match → lease → subprocess | ✅ |
 | AES-256-GCM secret storage | ✅ |
-| `pboy daemon` / `ui` / `event complete` | ❌ 미구현 (명시적 실패) |
+| `pboy daemon` + `GET /healthz` | ✅ (이벤트 inject API는 M1.2) |
+| `pboy ui` / `event complete` | ❌ 미구현 (명시적 실패) |
 | 채널 수신 (Slack/Telegram/Jira) | ❌ 미구현 |
+
+Production 로드맵·백로그: [`ROADMAP.md`](ROADMAP.md) · [GitHub Issues](https://github.com/fritzprix/pboy/issues)
 
 ## 설치
 
@@ -54,9 +57,19 @@ pip install -e ".[dev]"
 
 상세: [`tests/README.md`](tests/README.md)
 
+## 데몬 시작
+
+```bash
+pboy daemon --host 127.0.0.1 --port 8080
+# 다른 터미널:
+curl -sf http://127.0.0.1:8080/healthz
+```
+
+이벤트 HTTP inject·채널 수신은 아직 없습니다 (`ROADMAP.md` M1.2+).
+
 ## 수동으로 돌려보기 (Alpha)
 
-데몬/채널은 아직 없습니다. CLI로 훅을 등록한 뒤, 라이브러리 `Engine`으로 이벤트를 넣으면 하네스가 실행됩니다.
+CLI로 훅을 등록한 뒤, 라이브러리 `Engine`으로 이벤트를 넣으면 하네스가 실행됩니다.
 
 ```bash
 # 1) 훅 등록 — exec 는 로컬에서 실제로 존재하는 명령

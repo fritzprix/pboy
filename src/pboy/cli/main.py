@@ -73,12 +73,14 @@ def _run_with_store(coro_fn: Callable[[SQLiteStore], Coroutine[Any, Any, T]]) ->
 @app.command("daemon")
 def daemon_cmd(
     ui: Annotated[bool, typer.Option("--ui", help="Start embedded web dashboard")] = False,
+    host: Annotated[str, typer.Option("--host", help="Bind host")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = 8080,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
-    """Start local daemon with optional web dashboard."""
-    del ui, port, db  # options reserved for future daemon wiring
-    _not_implemented("daemon")
+    """Start local daemon HTTP API (UI flag reserved until M5)."""
+    from pboy.daemon.server import run_daemon
+
+    run_daemon(host=host, port=port, db=db, ui=ui)
 
 
 # ── UI ───────────────────────────────────────────────────────────────────────
