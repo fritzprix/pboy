@@ -9,19 +9,13 @@ from typing import Any
 import httpx
 from loguru import logger
 
-from pboy.channels.base import EventEmitter
+from pboy.channels.base import EventEmitter, redact_secret
 from pboy.core.config import Settings
 from pboy.store.base import StoreBase
 
 TELEGRAM_SECRET_KEY = "telegram.bot_token"
 DEFAULT_API_BASE = "https://api.telegram.org"
 
-
-def redact_secret(message: str, secret: str | None) -> str:
-    """Replace a secret substring in log/error text when present."""
-    if secret:
-        return message.replace(secret, "[REDACTED]")
-    return message
 
 class TelegramChannel:
     """Long-poll ``getUpdates`` and emit each update into the Engine."""

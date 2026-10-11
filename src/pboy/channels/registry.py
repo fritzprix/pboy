@@ -9,14 +9,15 @@ from loguru import logger
 
 from pboy.channels.base import ChannelAdapter, EventEmitter
 from pboy.channels.config import (
-    CHANNEL_SECRET_KEYS,
     env_channels_enabled_override,
     load_enabled_from_store,
     parse_enabled_names,
+    resolve_secret_key,
     save_enabled_to_store,
-    secret_key_for_channel,
+    secret_keys_for_channel,
 )
 from pboy.channels.fake import FakeChannel
+from pboy.channels.slack import build_slack_channel
 from pboy.channels.telegram import build_telegram_channel
 from pboy.core.config import Settings, get_settings
 from pboy.store.base import StoreBase
@@ -32,6 +33,7 @@ def _fake_factory(emit: EventEmitter, store: StoreBase, settings: Settings) -> C
 BUILTIN_FACTORIES: dict[str, AdapterFactory] = {
     "fake": _fake_factory,
     "telegram": build_telegram_channel,
+    "slack": build_slack_channel,
 }
 
 
@@ -163,17 +165,26 @@ class ChannelRegistry:
             self._running = [n for n in self._running if n != key]
             logger.info("channel.stopped name={}", key)
 
-    async def set_channel_secret(self, name: str, value: str) -> str:
+    def _env_covers_secret(self, secret_key: str) -> bool:
+        if secret_key == "telegram.bot_token":
+            return bool(self._settings.telegram_bot_token.strip())
+        if secret_key == "slack.bot_token":
+            return bool(self._settings.slack_bot_token.strip())
+        if secret_key == "slack.app_token":
+            return bool(self._settings.slack_app_token.strip())
+        return False
+
+    async def set_channel_secret(
+        self,
+        name: str,
+        value: str,
+        *,
+        secret_name: str | None = None,
+    ) -> str:
         """Store the channel token/secret; returns the secret key used."""
-        key = name.strip().lower()
-        secret_key = secret_key_for_channel(key)
-        if secret_key is None:
-            raise ValueError(
-                f"Channel '{key}' has no secret mapping. "
-                f"Supported: {', '.join(sorted(CHANNEL_SECRET_KEYS))}"
-            )
         if not value.strip():
             raise ValueError("Secret value must not be empty")
+        secret_key = resolve_secret_key(name, secret_name)
         await self._store.put_secret(secret_key, value.strip())
         return secret_key
 
@@ -182,17 +193,25 @@ class ChannelRegistry:
         running = set(self._running)
         rows: list[dict[str, Any]] = []
         for name in self.known_names():
-            secret_key = secret_key_for_channel(name)
-            has_secret = False
-            if secret_key is not None:
-                has_secret = (await self._store.get_secret(secret_key)) is not None
+            keys = secret_keys_for_channel(name)
+            has_secret = True
+            if keys:
+                for sk in keys:
+                    if self._env_covers_secret(sk):
+                        continue
+                    if (await self._store.get_secret(sk)) is None:
+                        has_secret = False
+                        break
+            else:
+                has_secret = False
             rows.append(
                 {
                     "name": name,
                     "enabled": name in enabled,
                     "running": name in running,
-                    "secret_key": secret_key,
-                    "has_secret": has_secret,
+                    "secret_key": keys[0] if len(keys) == 1 else None,
+                    "secret_keys": list(keys),
+                    "has_secret": has_secret if keys else False,
                 }
             )
         return rows

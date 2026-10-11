@@ -1,7 +1,10 @@
 # Channels — `pboy.channels`
 
-Inbound platform receivers. Adapters push **raw** payloads into `Engine.process_event`
+Inbound **wake-up** receivers. Adapters push **raw** payloads into `Engine.process_event`
 (normalization stays in `pboy.core.normalizer`).
+
+Ticketing systems (Jira / Confluence) are **not** required ChannelAdapters: agents
+call their REST APIs from the harness. See [`docs/architecture-channels.md`](../../../docs/architecture-channels.md).
 
 ## Module layout
 
@@ -11,7 +14,7 @@ Inbound platform receivers. Adapters push **raw** payloads into `Engine.process_
 | `registry.py` | Enable/start/stop via `PB_CHANNELS_ENABLED` |
 | `fake.py` | In-process fake adapter (tests / demos) |
 | `telegram.py` | Bot API long-poll (`getUpdates`) |
-| *(planned)* `slack.py` | Socket Mode (M4) |
+| `slack.py` | Socket Mode (Events API over WebSocket) |
 
 ## Enable channels
 
@@ -98,10 +101,28 @@ class ChannelAdapter(Protocol):
     async def stop(self) -> None: ...
 ```
 
-## Planned transports
+## Transports
 
-| Channel | Transport | Tunnel | Config |
-|---------|-----------|--------|--------|
-| Telegram | Long-poll `getUpdates` | No | Bot token |
-| Slack | Socket Mode | No | App + bot token |
-| Jira / Confluence | Webhook → relay | No | Relay URL |
+| Channel | Transport | Tunnel | Role |
+|---------|-----------|--------|------|
+| Telegram | Long-poll `getUpdates` | No | Wake-up ✅ |
+| Slack | Socket Mode | No | Wake-up ✅ |
+| Jira / Confluence | **Agent REST** (GET/POST) | No | Work surface — not a ChannelAdapter |
+| Jira webhook + relay | Push HTTPS | Public URL | Deferred / optional only |
+
+## Slack setup (Socket Mode)
+
+1. Create a Slack app with **Socket Mode** enabled; generate an **App-level token**
+   (`xapp-…`) with `connections:write`, and a **Bot token** (`xoxb-…`) with
+   `chat:write` + event subscriptions for `message.channels` / `message.im` as needed.
+2. Store secrets (both required):
+
+```bash
+pboy channel set-secret slack --secret-name bot_token --value 'xoxb-...'
+pboy channel set-secret slack --secret-name app_token --value 'xapp-...'
+pboy channel enable slack
+```
+
+Or env: `PB_SLACK_BOT_TOKEN` + `PB_SLACK_APP_TOKEN`.
+
+3. Start daemon, register a hook on `slack:message`, then message the app.

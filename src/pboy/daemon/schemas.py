@@ -103,6 +103,7 @@ class ChannelStatusItem(BaseModel):
     enabled: bool
     running: bool
     secret_key: str | None = None
+    secret_keys: list[str] = Field(default_factory=list)
     has_secret: bool = False
 
 
@@ -119,6 +120,7 @@ class ChannelMutationResponse(BaseModel):
 
 class SecretPutRequest(BaseModel):
     value: str = Field(min_length=1)
+    secret_name: str | None = None
 
 
 class SecretPutResponse(BaseModel):

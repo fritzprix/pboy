@@ -163,11 +163,20 @@ class DaemonClient:
         body: dict[str, Any] = response.json()
         return body
 
-    def set_channel_secret(self, name: str, value: str) -> dict[str, Any]:
+    def set_channel_secret(
+        self,
+        name: str,
+        value: str,
+        *,
+        secret_name: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"value": value}
+        if secret_name:
+            payload["secret_name"] = secret_name
         response = self._request(
             "PUT",
             f"/v1/channels/{name}/secret",
-            json={"value": value},
+            json=payload,
         )
         response.raise_for_status()
         body: dict[str, Any] = response.json()

@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 
+def redact_secret(message: str, secret: str | None) -> str:
+    """Replace a secret substring in log/error text when present."""
+    if secret:
+        return message.replace(secret, "[REDACTED]")
+    return message
+
+
 @runtime_checkable
 class EventEmitter(Protocol):
     """Sink used by adapters to hand raw platform payloads to the Engine."""
@@ -36,4 +43,4 @@ class ChannelAdapter(Protocol):
         ...
 
 
-__all__ = ["ChannelAdapter", "EventEmitter"]
+__all__ = ["ChannelAdapter", "EventEmitter", "redact_secret"]

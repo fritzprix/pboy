@@ -30,7 +30,10 @@ dependencies = [
     "aiosqlite>=0.19,<1.0",
     "cryptography>=42.0,<44.0",
     "httpx>=0.27,<1.0",
+    # Slack Socket Mode uses legacy asyncio connect kwargs (max_queue); 13+ drops them.
+    "websockets>=12.0,<13.0",
     "python-dotenv>=1.0,<2.0",
+
     "loguru>=0.7,<1.0",
     "fastapi>=0.111,<1.0",
     "uvicorn[standard]>=0.30,<1.0",

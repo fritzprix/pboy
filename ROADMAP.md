@@ -3,6 +3,8 @@
 Backlog lives on GitHub Issues with milestones **M1–M6**.  
 Repo: https://github.com/fritzprix/pboy/issues
 
+Architecture note (channels vs ticketing): [`docs/architecture-channels.md`](docs/architecture-channels.md)
+
 ## Current vs production
 
 | Capability | Now (Alpha) | Production target |
@@ -10,11 +12,12 @@ Repo: https://github.com/fritzprix/pboy/issues
 | Hook / state / event CLI | ✅ | ✅ |
 | Engine normalize→route→exec | ✅ | ✅ |
 | Long-running daemon + inject/hooks API | ✅ | ✅ M1 |
-| Real inbound channel | ❌ | ✅ M2 (Telegram first) |
-| `event complete` + outbound sync | ✅ M3 | ✅ M3 |
-| Slack / Jira / Confluence / relay | ❌ | ✅ M4 |
+| Wake-up channels (Telegram, Slack) | Telegram ✅ | ✅ M2 + M4.1 |
+| `event complete` + Telegram outbound | ✅ M3 | ✅ |
+| Jira/Confluence as agent REST work surface | docs ✅ | secrets + examples (no webhook required) |
+| Jira webhook / relay | ❌ deferred | optional only |
 | Web UI | ❌ | ✅ M5 |
-| CI, packaging, hardening, ops docs | ❌ | ✅ M6 |
+| CI, packaging, hardening, ops docs | partial | ✅ M6 |
 
 ## Sequential plan (implement → verify → next)
 
@@ -36,14 +39,15 @@ M3 Outbound
   #8  event complete persist     ✅
   #9  sync telegram reply        ✅
        │
-M4 Multi-channel
-  #10 Slack Socket Mode          ← next
-  #11 Jira/Confluence + relay
-  #12 outbound jira/slack
+M4 Wake-up channels (revised)
+  #10 Slack Socket Mode          ✅
+  #11 Jira/Confluence webhook+relay  ⏸ deferred (agent REST pull instead)
+  #12 outbound jira/slack        ⏸ jira sync deferred; slack thread optional later
        │
 M5 Web UI
-  #13 dashboard shell
+  #13 dashboard shell            ← next
   #14 secrets/channel forms
+
        │
 M6 Hardening (can start early in parallel)
   #15 CI workflow                ✅
@@ -63,5 +67,6 @@ M6 Hardening (can start early in parallel)
 ## Working agreement
 
 - One milestone slice at a time on `main` via PR (or direct commit for tiny CI/docs).
-- Do not start UI-heavy work before M1.2 (something real to display).
-- Prefer Telegram as first channel (outbound poll, no tunnel).
+- ChannelAdapters are for **wake-up** transports (no inbound tunnel when possible).
+- Jira/Confluence: prefer **agent harness REST**; do not block the roadmap on public webhooks.
+- Prefer Telegram then Slack as wake-up channels.

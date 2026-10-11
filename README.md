@@ -2,10 +2,11 @@
 
 > Zero-Ops 에이전트 이벤트 오케스트레이터 & 디스패처 (**Alpha**)
 
-Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화하고, 매칭된 훅을 로컬 subprocess 하네스로 실행하는 도구입니다.
+Telegram·Slack 등 **wake-up 채널** 이벤트를 CloudEvents v1.0으로 정규화하고, 매칭된 훅(에이전트 harness)을 로컬 subprocess로 실행하는 도구입니다.  
+Jira/Confluence는 데몬 webhook이 아니라 **에이전트가 REST로 pull/update**하는 작업면으로 둡니다 ([`docs/architecture-channels.md`](docs/architecture-channels.md)).
 
-> **Alpha 상태:** 코어 + 데몬 + Telegram inbound/outbound(`event complete --sync telegram`)까지 동작합니다.
-> `ui`, Slack/Jira inbound는 아직 미구현입니다.
+> **Alpha 상태:** 코어 + 데몬 + Telegram/Slack wake-up + Telegram outbound까지 동작합니다.
+> Jira는 agent REST(문서화), UI는 미구현입니다.
 
 ## 현재 동작하는 것
 
@@ -23,7 +24,8 @@ Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화�
 | Channel adapter registry (`PB_CHANNELS_ENABLED`) | ✅ |
 | Telegram long-poll inbound | ✅ (`PB_TELEGRAM_BOT_TOKEN` / secret) |
 | `pboy channel list/enable/disable/set-secret` | ✅ |
-| Slack / Jira / Confluence inbound | ❌ (M4) |
+| Slack Socket Mode wake-up | ✅ (`PB_SLACK_*` / secrets) |
+| Jira/Confluence ChannelAdapter | ⏸ deferred — agent REST instead |
 
 Production 로드맵·백로그: [`ROADMAP.md`](ROADMAP.md) · [GitHub Issues](https://github.com/fritzprix/pboy/issues)
 

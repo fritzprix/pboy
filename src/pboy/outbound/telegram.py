@@ -7,7 +7,8 @@ from typing import Any
 import httpx
 from loguru import logger
 
-from pboy.channels.telegram import DEFAULT_API_BASE, TELEGRAM_SECRET_KEY, redact_secret
+from pboy.channels.base import redact_secret
+from pboy.channels.telegram import DEFAULT_API_BASE, TELEGRAM_SECRET_KEY
 from pboy.core.config import Settings
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.completion import SyncResult

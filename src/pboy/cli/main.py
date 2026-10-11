@@ -414,7 +414,7 @@ def channel_list() -> None:
             flags = []
             flags.append("enabled" if row.get("enabled") else "disabled")
             flags.append("running" if row.get("running") else "stopped")
-            if row.get("secret_key"):
+            if row.get("secret_keys") or row.get("secret_key"):
                 flags.append("secret=yes" if row.get("has_secret") else "secret=no")
             typer.echo(f"• {row.get('name')} [{', '.join(flags)}]")
         return
@@ -435,7 +435,7 @@ def channel_list() -> None:
             flags = []
             flags.append("enabled" if row["enabled"] else "disabled")
             flags.append("running" if row["running"] else "stopped")
-            if row["secret_key"]:
+            if row.get("secret_keys") or row.get("secret_key"):
                 flags.append("secret=yes" if row["has_secret"] else "secret=no")
             typer.echo(f"• {row['name']} [{', '.join(flags)}]")
 
@@ -533,10 +533,17 @@ def channel_disable(
 
 @channel_app.command("set-secret")
 def channel_set_secret(
-    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram)")],
+    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram, slack)")],
     value: Annotated[
         str | None,
         typer.Option("--value", help="Secret value (prefer env/store over shell history)"),
+    ] = None,
+    secret_name: Annotated[
+        str | None,
+        typer.Option(
+            "--secret-name",
+            help="For multi-secret channels (slack: bot_token | app_token)",
+        ),
     ] = None,
 ) -> None:
     """Store an encrypted channel secret (e.g. telegram bot token)."""
@@ -550,25 +557,24 @@ def channel_set_secret(
     client = _daemon_client_or_none()
     if client is not None:
         try:
-            body = client.set_channel_secret(name, secret_value)
+            body = client.set_channel_secret(
+                name, secret_value, secret_name=secret_name
+            )
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
         typer.echo(f"Stored secret '{body.get('key')}' for channel '{name}'.")
         return
 
     async def _run(store: SQLiteStore) -> None:
-        from pboy.channels.config import secret_key_for_channel
+        from pboy.channels.config import resolve_secret_key
 
-        key = name.strip().lower()
-        secret_key = secret_key_for_channel(key)
-        if secret_key is None:
-            typer.echo(
-                f"Channel '{key}' has no secret mapping (supported: telegram).",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+        try:
+            secret_key = resolve_secret_key(name, secret_name)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
         await store.put_secret(secret_key, secret_value.strip())
-        typer.echo(f"Stored secret '{secret_key}' for channel '{key}'.")
+        typer.echo(f"Stored secret '{secret_key}' for channel '{name.strip().lower()}'.")
 
     _run_with_store(_run)
 

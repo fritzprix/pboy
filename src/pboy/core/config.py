@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # env wins when both are set.
     telegram_bot_token: str = ""
 
+    # Slack Socket Mode tokens (optional). Prefer store secrets
+    # ``slack.bot_token`` / ``slack.app_token``; env wins when set.
+    slack_bot_token: str = ""
+    slack_app_token: str = ""
+
     # Paths
     config_dir: Path = Path.home() / ".config" / "pboy"
     data_dir: Path = Path.home() / ".local" / "share" / "pboy"

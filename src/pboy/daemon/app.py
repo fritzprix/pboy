@@ -289,7 +289,9 @@ def create_app(
     ) -> SecretPutResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
         try:
-            secret_key = await reg.set_channel_secret(name, body.value)
+            secret_key = await reg.set_channel_secret(
+                name, body.value, secret_name=body.secret_name
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return SecretPutResponse(key=secret_key, stored=True)
