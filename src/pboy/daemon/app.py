@@ -7,9 +7,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from pboy.core.engine import Engine
+from pboy.daemon.schemas import (
+    EventInjectRequest,
+    EventInjectResponse,
+    ExecutionSummary,
+)
 from pboy.store.sqlite import SQLiteStore
 
 
@@ -47,5 +52,31 @@ def create_app(
             "service": "pboy-daemon",
             "db_path": app.state.db_path,
         }
+
+    @app.post("/v1/events", response_model=EventInjectResponse)
+    async def inject_event(body: EventInjectRequest, request: Request) -> EventInjectResponse:
+        eng: Engine = request.app.state.engine
+        event, matched, executions = await eng.process_event(
+            body.payload,
+            body.source,
+            dispatch=body.dispatch,
+        )
+        return EventInjectResponse(
+            event_id=event.id,
+            source=event.source,
+            type=event.type,
+            matched_hooks=[h.name for h in matched],
+            executions=[
+                ExecutionSummary(
+                    execution_id=ex.execution_id,
+                    hook_name=ex.hook_name,
+                    status=ex.status,
+                    exit_code=ex.exit_code,
+                    stdout=ex.stdout,
+                    stderr=ex.stderr,
+                )
+                for ex in executions
+            ],
+        )
 
     return app

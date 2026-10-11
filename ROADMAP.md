@@ -20,9 +20,9 @@ Repo: https://github.com/fritzprix/pboy/issues
 
 ```text
 M1 Daemon spine
-  #1  Daemon + /healthz          ← current
-  #2  POST /v1/events inject
-  #3  PB_DAEMON_URL-aware CLI
+  #1  Daemon + /healthz          ✅
+  #2  POST /v1/events inject     ✅
+  #3  PB_DAEMON_URL-aware CLI    ← next
   #4  Schema migrations
        │
 M2 First channel
@@ -44,7 +44,7 @@ M5 Web UI
   #14 secrets/channel forms
        │
 M6 Hardening (can start early in parallel)
-  #15 CI workflow              ← start with M1
+  #15 CI workflow                ✅
   #16 PyPI / uvx release
   #17 security checklist
   #18 operator docs

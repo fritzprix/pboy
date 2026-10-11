@@ -16,7 +16,7 @@ Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화�
 | `pboy event list/get` | ✅ |
 | Engine: normalize → store → match → lease → subprocess | ✅ |
 | AES-256-GCM secret storage | ✅ |
-| `pboy daemon` + `GET /healthz` | ✅ (이벤트 inject API는 M1.2) |
+| `pboy daemon` + `/healthz` + `POST /v1/events` | ✅ |
 | `pboy ui` / `event complete` | ❌ 미구현 (명시적 실패) |
 | 채널 수신 (Slack/Telegram/Jira) | ❌ 미구현 |
 
@@ -65,7 +65,14 @@ pboy daemon --host 127.0.0.1 --port 8080
 curl -sf http://127.0.0.1:8080/healthz
 ```
 
-이벤트 HTTP inject·채널 수신은 아직 없습니다 (`ROADMAP.md` M1.2+).
+```bash
+# 이벤트 주입 (daemon 실행 중)
+curl -sX POST http://127.0.0.1:8080/v1/events \
+  -H 'content-type: application/json' \
+  -d '{"source":"jira","payload":{...},"dispatch":true}'
+```
+
+채널 수신은 아직 없습니다 (`ROADMAP.md` M2).
 
 ## 수동으로 돌려보기 (Alpha)
 
