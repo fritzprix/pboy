@@ -16,6 +16,42 @@ from pboy.models.hook import Hook
 from pboy.store.base import StoreBase
 
 
+async def _communicate(
+    proc: asyncio.subprocess.Process,
+    stdin_payload: bytes,
+) -> tuple[bytes, bytes]:
+    """Feed stdin and collect stdout/stderr concurrently (stdlib communicate shape).
+
+    Children that exit without reading stdin (e.g. ``echo``) close the pipe early.
+    Under uvloop (uvicorn[standard]) that surfaces as RuntimeError instead of
+    BrokenPipeError — treat both as non-fatal and still collect output.
+    """
+
+    async def _feed_stdin() -> None:
+        if proc.stdin is None:
+            return
+        try:
+            proc.stdin.write(stdin_payload)
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError, RuntimeError):
+            pass
+        finally:
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError, RuntimeError):
+                proc.stdin.close()
+                await proc.stdin.wait_closed()
+
+    async def _read(stream: asyncio.StreamReader | None) -> bytes:
+        return await stream.read() if stream is not None else b""
+
+    _, stdout_b, stderr_b = await asyncio.gather(
+        _feed_stdin(),
+        _read(proc.stdout),
+        _read(proc.stderr),
+    )
+    await proc.wait()
+    return stdout_b, stderr_b
+
+
 class HarnessExecutor:
     """Spawn hook commands as subprocesses with CloudEvent stdin and PB_* env."""
 
@@ -102,13 +138,14 @@ class HarnessExecutor:
 
         try:
             stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(input=stdin_payload),
+                _communicate(proc, stdin_payload),
                 timeout=float(hook.timeout),
             )
         except TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
-            await proc.communicate()
+            with contextlib.suppress(Exception):
+                await proc.communicate()
             logger.warning(
                 "Harness timed out for hook={} event={} timeout={}s",
                 hook.name,

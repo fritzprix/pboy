@@ -23,8 +23,9 @@ M1 Daemon spine
   #1  Daemon + /healthz          ✅
   #2  POST /v1/events inject     ✅
   #3  PB_DAEMON_URL-aware CLI    ✅
-  #19–#23 Audit remediation      ✅ (cli shadowing, daemon URL, hooks API, auth, tests/docs)
-  #4  Schema migrations          ← next
+  #19–#23 Audit remediation      ✅
+  #4  Schema migrations          ⏸ deferred (no installed DB — single DDL + delete DB to reset)
+  #24 Operator smoke demo        ✅ (scripts/smoke_demo.sh + harness uvloop fix)
        │
 M2 First channel
   #5  ChannelAdapter interface

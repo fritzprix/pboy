@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Awaitable, Callable
 from unittest.mock import patch
 
 import pytest
@@ -112,6 +113,59 @@ async def test_executor_timeout_kills_process(tmp_store: SQLiteStore, dummy_even
     assert result.exit_code == -1
     assert result.stderr is not None
     assert "Timed out after 1s" in result.stderr
+
+
+def _run_under_uvloop(coro_factory: Callable[[], Awaitable[None]]) -> None:
+    uvloop = pytest.importorskip("uvloop")
+    loop = uvloop.new_event_loop()
+    try:
+        loop.run_until_complete(coro_factory())
+    finally:
+        loop.close()
+
+
+def test_executor_echo_ignores_stdin_under_uvloop(
+    tmp_store: SQLiteStore,
+    dummy_event: CloudEvent,
+) -> None:
+    """Short-lived commands that ignore stdin must not fail under uvloop."""
+
+    async def _run() -> None:
+        executor = HarnessExecutor(store=tmp_store)
+        hook = Hook(
+            name="echo-stdin",
+            topic="test:event.created",
+            exec="echo smoke-ok",
+            timeout=10,
+        )
+        result = await executor.run(hook, dummy_event)
+        assert result.status == "completed"
+        assert result.exit_code == 0
+        assert result.stdout is not None
+        assert "smoke-ok" in result.stdout
+
+    _run_under_uvloop(_run)
+
+
+def test_executor_nonzero_exit_ignores_stdin_under_uvloop(
+    tmp_store: SQLiteStore,
+    dummy_event: CloudEvent,
+) -> None:
+    """Non-zero exit with ignored stdin must still record failed + exit_code."""
+
+    async def _run() -> None:
+        executor = HarnessExecutor(store=tmp_store)
+        hook = Hook(
+            name="fail-stdin",
+            topic="test:event.created",
+            exec="sh -c 'exit 42'",
+            timeout=10,
+        )
+        result = await executor.run(hook, dummy_event)
+        assert result.status == "failed"
+        assert result.exit_code == 42
+
+    _run_under_uvloop(_run)
 
 
 @pytest.mark.asyncio

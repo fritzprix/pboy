@@ -35,3 +35,6 @@ jobs:
 
       - name: Contract tests
         run: pytest -m contract -q
+
+      - name: Operator smoke (daemon HTTP path)
+        run: ./scripts/smoke_demo.sh

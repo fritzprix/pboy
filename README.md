@@ -58,102 +58,66 @@ pip install -e ".[dev]"
 
 상세: [`tests/README.md`](tests/README.md)
 
-## 데몬 시작
+## 한 번에 검증 (권장)
+
+데몬 HTTP 경로가 실제로 도는지 ephemeral DB로 확인합니다 (기본 `~/.local/share/pboy`는 건드리지 않음):
 
 ```bash
-export PB_AUTH_TOKEN=dev-secret   # 권장: mutating API 보호
-pboy daemon --host 127.0.0.1 --port 8080
-# 다른 터미널:
-curl -sf http://127.0.0.1:8080/healthz
+./scripts/smoke_demo.sh
+# 성공 시: OK — daemon + hook + harness path works
 ```
 
+스키마 migration은 없습니다. 로컬 DB를 리셋하려면 파일을 지우세요:
+
 ```bash
-# 이벤트 주입 (daemon 실행 중; 토큰 필요 시 헤더 포함)
-curl -sX POST http://127.0.0.1:8080/v1/events \
+rm -f ~/.local/share/pboy/pboy.db
+```
+
+## 데몬으로 수동 실행
+
+운영에 가까운 경로입니다. CLI는 **`PB_DAEMON_URL`이 있을 때만** 데몬 HTTP를 쓰고, 없으면 별도 로컬 SQLite로 갑니다 (split-brain 주의).
+
+```bash
+export PB_AUTH_TOKEN=dev-secret
+export PB_DAEMON_URL=http://127.0.0.1:8080
+
+# 터미널 1
+pboy daemon --host 127.0.0.1 --port 8080
+
+# 터미널 2
+curl -sf "$PB_DAEMON_URL/healthz"
+
+pboy hook register \
+  --name echo-demo \
+  --topic 'jira:issue.created' \
+  --exec 'echo ok' \
+  --timeout 30
+
+curl -sX POST "$PB_DAEMON_URL/v1/events" \
   -H 'content-type: application/json' \
   -H "X-PB-Token: $PB_AUTH_TOKEN" \
-  -d '{"source":"jira","payload":{...},"dispatch":true}'
-```
+  -d '{
+    "source":"jira",
+    "dispatch":true,
+    "payload":{
+      "webhookEvent":"jira:issue_created",
+      "issue":{
+        "id":"1","key":"DEMO-1",
+        "fields":{
+          "summary":"demo",
+          "priority":{"name":"High"},
+          "project":{"key":"DEMO"},
+          "creator":{"accountId":"u1","displayName":"Demo"},
+          "labels":[]
+        }
+      }
+    }
+  }'
 
-하네스/CLI가 데몬과 동일 DB를 쓰려면 **`PB_DAEMON_URL`을 명시**하세요 (미설정 시 로컬 SQLite).  
-데몬이 기동되면 harness에는 실제 bind URL이 주입됩니다. mutating 호출에는 `PB_AUTH_TOKEN`도 함께:
-
-```bash
-export PB_DAEMON_URL=http://127.0.0.1:8080
-export PB_AUTH_TOKEN=dev-secret
-pboy hook register --name demo --topic 'jira:issue.created' --exec 'echo ok' --timeout 30
-pboy state put --event-id "$PB_EVENT_ID" --status running --progress 50
 pboy event list
 ```
 
 채널 수신은 아직 없습니다 (`ROADMAP.md` M2).
-
-## 수동으로 돌려보기 (Alpha)
-
-CLI로 훅을 등록한 뒤, 라이브러리 `Engine`으로 이벤트를 넣으면 하네스가 실행됩니다.
-
-```bash
-# 1) 훅 등록 — exec 는 로컬에서 실제로 존재하는 명령
-pboy hook register \
-  --name "echo-demo" \
-  --topic "jira:issue.created" \
-  --filter '.data.priority == "High"' \
-  --exec 'python3 -c "import sys,json; print(json.load(sys.stdin)[\"id\"])"' \
-  --concurrency 1 \
-  --timeout 30
-
-pboy hook list
-```
-
-```bash
-# 2) 샘플 이벤트 주입 (Engine)
-.venv/bin/python - <<'PY'
-import asyncio
-from pboy.core.engine import Engine
-
-payload = {
-    "webhookEvent": "jira:issue_created",
-    "issue": {
-        "id": "1",
-        "key": "DEMO-1",
-        "fields": {
-            "summary": "demo",
-            "priority": {"name": "High"},
-            "project": {"key": "DEMO"},
-            "creator": {"accountId": "u1", "displayName": "Demo"},
-            "labels": [],
-        },
-    },
-}
-
-async def main() -> None:
-    engine = Engine()
-    await engine.start()
-    try:
-        event, matched, executions = await engine.process_event(payload, "jira")
-        print("event:", event.id)
-        print("matched:", [h.name for h in matched])
-        for ex in executions:
-            print("exec:", ex.status, ex.exit_code, (ex.stdout or "").strip())
-    finally:
-        await engine.stop()
-
-asyncio.run(main())
-PY
-```
-
-```bash
-# 3) 조회
-pboy event list
-pboy event get <event_id>
-```
-
-하네스 안에서 상태 보고:
-
-```bash
-pboy state put --event-id "$PB_EVENT_ID" --status running --progress 50
-pboy state get "$PB_EVENT_ID"
-```
 
 ## 프로젝트 구조
 
@@ -167,6 +131,7 @@ pboy/
 │   ├── harness/     # Subprocess executor
 │   ├── ui/          # (planned) local dashboard
 │   └── models/      # CloudEvents / Hook / Execution
+├── scripts/smoke_demo.sh
 ├── tests/
 ├── pyproject.toml
 └── README.md
