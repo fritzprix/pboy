@@ -72,6 +72,22 @@ pboy channel list
 Long-poll calls `deleteWebhook` on start so it does not fight a webhook subscription.
 On API errors the poller backs off exponentially (1s → 60s).
 
+## Outbound sync (completion reply)
+
+When a harness finishes work it can close the loop:
+
+```bash
+pboy event complete "$PB_EVENT_ID" \
+  --summary 'Restarted worker-2' \
+  --sync telegram
+```
+
+This uses the same bot token, posts to `event.data.channel_id`, and replies to
+`event.data.entity_key` (message id) when numeric. Failed sync exits CLI non-zero
+but the completion record is still persisted. Re-running
+`pboy event complete … --sync telegram` retries **failed/missing** sync targets
+only (successful ones are not re-sent; original summary is kept).
+
 ## Adapter contract
 
 ```python

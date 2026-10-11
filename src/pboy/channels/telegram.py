@@ -17,6 +17,12 @@ TELEGRAM_SECRET_KEY = "telegram.bot_token"
 DEFAULT_API_BASE = "https://api.telegram.org"
 
 
+def redact_secret(message: str, secret: str | None) -> str:
+    """Replace a secret substring in log/error text when present."""
+    if secret:
+        return message.replace(secret, "[REDACTED]")
+    return message
+
 class TelegramChannel:
     """Long-poll ``getUpdates`` and emit each update into the Engine."""
 
@@ -102,14 +108,20 @@ class TelegramChannel:
                     res.text[:200],
                 )
         except httpx.HTTPError as exc:
-            logger.warning("channel.telegram deleteWebhook failed: {}", exc)
+            logger.warning(
+                "channel.telegram deleteWebhook failed: {}",
+                redact_secret(str(exc), self._token),
+            )
 
     async def _fetch_updates(self) -> list[dict[str, Any]]:
-        res = await self._client.get(
-            self._bot_url("getUpdates"),
-            params={"offset": self._offset, "timeout": self._poll_timeout},
-        )
-        res.raise_for_status()
+        try:
+            res = await self._client.get(
+                self._bot_url("getUpdates"),
+                params={"offset": self._offset, "timeout": self._poll_timeout},
+            )
+            res.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RuntimeError(redact_secret(str(exc), self._token)) from exc
         body = res.json()
         if not isinstance(body, dict) or not body.get("ok"):
             raise RuntimeError(f"Telegram getUpdates not ok: {body!r}")
@@ -166,7 +178,7 @@ class TelegramChannel:
             except Exception as exc:
                 logger.warning(
                     "channel.telegram poll_error err={} backoff={:.1f}s",
-                    exc,
+                    redact_secret(str(exc), self._token),
                     backoff,
                 )
                 try:
@@ -185,4 +197,10 @@ def build_telegram_channel(
     return TelegramChannel(emit, store, settings)
 
 
-__all__ = ["TELEGRAM_SECRET_KEY", "TelegramChannel", "build_telegram_channel"]
+__all__ = [
+    "DEFAULT_API_BASE",
+    "TELEGRAM_SECRET_KEY",
+    "TelegramChannel",
+    "build_telegram_channel",
+    "redact_secret",
+]

@@ -103,11 +103,17 @@ STORE_REQUIRED_METHODS: Final[tuple[str, ...]] = (
 )
 
 # ── CLI surface ──────────────────────────────────────────────────────────────
-CLI_IMPLEMENTED_GROUPS: Final[tuple[str, ...]] = ("hook", "state", "event", "daemon")
+CLI_IMPLEMENTED_GROUPS: Final[tuple[str, ...]] = ("hook", "state", "event", "daemon", "channel")
 CLI_NOT_IMPLEMENTED: Final[tuple[tuple[str, ...], ...]] = (
     ("ui",),
-    ("event", "complete", "evt_contract_probe"),
 )
+
+# ── Event completion ─────────────────────────────────────────────────────────
+COMPLETION_STATE_KEY: Final = "completion"
+COMPLETION_REQUIRED_FIELDS: Final[frozenset[str]] = frozenset(
+    {"status", "summary", "completed_at", "sync", "sync_results"}
+)
+SYNC_TARGETS_SUPPORTED: Final[frozenset[str]] = frozenset({"telegram"})
 
 # ── Engine process_event ─────────────────────────────────────────────────────
 ENGINE_PROCESS_EVENT_ARITY: Final = 3  # (event, matched_hooks, executions)

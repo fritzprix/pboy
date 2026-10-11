@@ -4,8 +4,8 @@
 
 Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화하고, 매칭된 훅을 로컬 subprocess 하네스로 실행하는 도구입니다.
 
-> **Alpha 상태:** 코어 + 로컬 데몬 + 채널 레지스트리 + **Telegram long-poll**까지 동작합니다.
-> `ui`, `event complete`, Slack/Jira inbound는 아직 미구현입니다.
+> **Alpha 상태:** 코어 + 데몬 + Telegram inbound/outbound(`event complete --sync telegram`)까지 동작합니다.
+> `ui`, Slack/Jira inbound는 아직 미구현입니다.
 
 ## 현재 동작하는 것
 
@@ -18,7 +18,8 @@ Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화�
 | AES-256-GCM secret storage | ✅ |
 | `pboy daemon` + `/healthz` + `/v1/events` + `/v1/hooks` | ✅ |
 | Daemon auth (`PB_AUTH_TOKEN` / `X-PB-Token`) | ✅ |
-| `pboy ui` / `event complete` | ❌ 미구현 (명시적 실패) |
+| `pboy event complete` (+ `--sync telegram`) | ✅ |
+| `pboy ui` | ❌ 미구현 (명시적 실패) |
 | Channel adapter registry (`PB_CHANNELS_ENABLED`) | ✅ |
 | Telegram long-poll inbound | ✅ (`PB_TELEGRAM_BOT_TOKEN` / secret) |
 | `pboy channel list/enable/disable/set-secret` | ✅ |
@@ -138,6 +139,13 @@ pboy channel list
 ```
 
 상세·BotFather 절차: [`src/pboy/channels/README.md`](src/pboy/channels/README.md). Slack/Jira inbound는 M4.
+
+완료 후 텔레그램 답장:
+
+```bash
+pboy event complete "$PB_EVENT_ID" --summary 'Resolved' --sync telegram
+pboy event get "$PB_EVENT_ID"   # completion / execution_state 포함
+```
 
 ## 프로젝트 구조
 

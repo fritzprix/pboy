@@ -77,6 +77,27 @@ class HookDeleteResponse(BaseModel):
     name: str
 
 
+class EventCompleteRequest(BaseModel):
+    summary: str = "Completed"
+    sync: list[str] = Field(default_factory=list)
+
+
+class SyncResultModel(BaseModel):
+    target: str
+    ok: bool
+    detail: str = ""
+    message_id: str | None = None
+
+
+class EventCompleteResponse(BaseModel):
+    event_id: str
+    status: str
+    summary: str
+    completed_at: str
+    already_completed: bool
+    sync_results: list[SyncResultModel] = Field(default_factory=list)
+
+
 class ChannelStatusItem(BaseModel):
     name: str
     enabled: bool

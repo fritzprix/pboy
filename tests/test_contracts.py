@@ -34,6 +34,8 @@ from tests.contracts.spec import (
     CLOUDEVENT_OPTIONAL_CORE_FIELDS,
     CLOUDEVENT_REQUIRED_FIELDS,
     CLOUDEVENT_SPECVERSION,
+    COMPLETION_REQUIRED_FIELDS,
+    COMPLETION_STATE_KEY,
     ENGINE_PROCESS_EVENT_ARITY,
     EVENT_DATA_KNOWN_KEYS,
     EVENT_ID_RE,
@@ -45,6 +47,7 @@ from tests.contracts.spec import (
     HARNESS_TERMINAL_STATUSES,
     ISO_TIME_RE,
     STORE_REQUIRED_METHODS,
+    SYNC_TARGETS_SUPPORTED,
     TOPIC_TYPE_CONTRACT,
 )
 
@@ -306,6 +309,28 @@ async def test_contract_engine_process_event_arity_and_dispatch(
     assert executions2[0].status == "completed"
     assert engine.lease.active_count("engine-probe") == 0
     assert await engine.store.get_event(event2.id) is not None
+
+
+# ── Event completion ─────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_contract_event_completion_shape(tmp_store: SQLiteStore) -> None:
+    from pboy.models.completion import COMPLETION_STATE_KEY as KEY
+
+    assert KEY == COMPLETION_STATE_KEY
+    engine = Engine(store=tmp_store)
+    event = CloudEvent(
+        source="telegram",
+        type="com.telegram.message.received",
+        data={"channel_id": "1", "entity_key": "2"},
+    )
+    await tmp_store.create_event(event)
+    completion, already = await engine.complete_event(event.id, summary="ok", sync=[])
+    assert already is False
+    assert set(completion.as_state()) >= COMPLETION_REQUIRED_FIELDS
+    assert "telegram" in SYNC_TARGETS_SUPPORTED
+    again, already2 = await engine.complete_event(event.id, summary="other")
+    assert already2 is True
+    assert again.summary == "ok"
 
 
 # ── CLI surface ──────────────────────────────────────────────────────────────

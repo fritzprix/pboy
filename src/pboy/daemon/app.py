@@ -18,6 +18,8 @@ from pboy.daemon.schemas import (
     ChannelListResponse,
     ChannelMutationResponse,
     ChannelStatusItem,
+    EventCompleteRequest,
+    EventCompleteResponse,
     EventInjectRequest,
     EventInjectResponse,
     EventListItem,
@@ -32,6 +34,7 @@ from pboy.daemon.schemas import (
     StateGetResponse,
     StatePutRequest,
     StatePutResponse,
+    SyncResultModel,
 )
 from pboy.models.hook import Hook
 from pboy.store.sqlite import SQLiteStore
@@ -58,9 +61,9 @@ def create_app(
     extra_adapters: list[ChannelAdapter] | None = None,
 ) -> FastAPI:
     """Build daemon app with a dedicated Engine/store/channel lifecycle."""
-    store = SQLiteStore(db_path=db_path, secret_key=secret_key)
-    engine = Engine(store=store)
     cfg = settings or get_settings()
+    store = SQLiteStore(db_path=db_path, secret_key=secret_key)
+    engine = Engine(store=store, settings=cfg)
     registry = ChannelRegistry(emit=engine.process_event, store=store, settings=cfg)
     for adapter in extra_adapters or []:
         registry.register(adapter)
@@ -131,10 +134,40 @@ def create_app(
     @app.get("/v1/events/{event_id}")
     async def get_event(event_id: str, request: Request) -> dict[str, Any]:
         eng: Engine = request.app.state.engine
-        event = await eng.store.get_event(event_id)
-        if event is None:
+        detail = await eng.event_detail(event_id)
+        if detail is None:
             raise HTTPException(status_code=404, detail=f"Event '{event_id}' not found")
-        return event.model_dump()
+        return detail
+
+    @app.post(
+        "/v1/events/{event_id}/complete",
+        response_model=EventCompleteResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
+    async def complete_event(
+        event_id: str, body: EventCompleteRequest, request: Request
+    ) -> EventCompleteResponse:
+        eng: Engine = request.app.state.engine
+        try:
+            completion, already = await eng.complete_event(
+                event_id,
+                summary=body.summary,
+                sync=body.sync,
+            )
+        except KeyError as exc:
+            detail = exc.args[0] if exc.args else f"Event '{event_id}' not found"
+            raise HTTPException(status_code=404, detail=detail) from exc
+
+        return EventCompleteResponse(
+            event_id=event_id,
+            status=completion.status,
+            summary=completion.summary,
+            completed_at=completion.completed_at,
+            already_completed=already,
+            sync_results=[
+                SyncResultModel.model_validate(r.model_dump()) for r in completion.sync_results
+            ],
+        )
 
     @app.put(
         "/v1/events/{event_id}/state",

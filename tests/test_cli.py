@@ -135,7 +135,7 @@ def test_cli_event_list_and_get(cli_runner: CliRunner, cli_db: Path) -> None:
 
     # Get non-existent
     res_get_missing = cli_runner.invoke(app, ["event", "get", "evt_nonexistent"])
-    assert res_get_missing.exit_code == 0
+    assert res_get_missing.exit_code == 1
     assert "Event 'evt_nonexistent' not found." in res_get_missing.output
 
     # Seed an event directly into the database

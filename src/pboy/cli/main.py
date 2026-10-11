@@ -307,28 +307,33 @@ def event_list(
 def event_get(
     event_id: Annotated[str, typer.Argument(help="Event ID")],
 ) -> None:
-    """Inspect a CloudEvent by ID.
+    """Inspect a CloudEvent by ID (includes completion / execution state).
 
     Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
     """
+    import json
+
     daemon_url = resolve_daemon_url()
     if daemon_url:
         try:
-            evt = DaemonClient(daemon_url).get_event(event_id)
+            detail = DaemonClient(daemon_url).get_event_detail(event_id)
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
-        if not evt:
+        if not detail:
             typer.echo(f"Event '{event_id}' not found.", err=True)
-        else:
-            typer.echo(evt.model_dump_json(indent=2))
+            raise typer.Exit(code=1)
+        typer.echo(json.dumps(detail, indent=2))
         return
 
     async def _run(store: SQLiteStore) -> None:
-        evt = await store.get_event(event_id)
-        if not evt:
+        from pboy.core.engine import Engine
+
+        engine = Engine(store=store)
+        detail = await engine.event_detail(event_id)
+        if not detail:
             typer.echo(f"Event '{event_id}' not found.", err=True)
-        else:
-            typer.echo(evt.model_dump_json(indent=2))
+            raise typer.Exit(code=1)
+        typer.echo(json.dumps(detail, indent=2))
 
     _run_with_store(_run)
 
@@ -337,11 +342,60 @@ def event_get(
 def event_complete(
     event_id: Annotated[str, typer.Argument(help="Event ID")],
     summary: Annotated[str, typer.Option("--summary", help="Resolution summary")] = "Completed",
-    sync: Annotated[str | None, typer.Option("--sync", help="Target sync channels")] = None,
+    sync: Annotated[
+        str | None,
+        typer.Option("--sync", help="Outbound sync targets (comma-separated, e.g. telegram)"),
+    ] = None,
 ) -> None:
-    """Mark an event processing as complete."""
-    del event_id, summary, sync  # reserved for future completion/sync wiring
-    _not_implemented("event complete")
+    """Mark an event processing as complete (optional outbound sync)."""
+    from pboy.models.completion import parse_sync_targets
+
+    targets = parse_sync_targets(sync)
+    daemon_url = resolve_daemon_url()
+    if daemon_url:
+        try:
+            body = DaemonClient(daemon_url).complete_event(
+                event_id, summary=summary, sync=targets
+            )
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        already = body.get("already_completed")
+        typer.echo(
+            f"Event '{event_id}' completed"
+            f"{' (already completed)' if already else ''}."
+            f" summary={body.get('summary')!r}"
+        )
+        sync_results = body.get("sync_results") or []
+        for item in sync_results:
+            flag = "ok" if item.get("ok") else "FAIL"
+            typer.echo(f"  sync {item.get('target')}: {flag} — {item.get('detail')}")
+        if any(not item.get("ok") for item in sync_results):
+            raise typer.Exit(code=1)
+        return
+
+    async def _run(store: SQLiteStore) -> None:
+        from pboy.core.engine import Engine
+
+        engine = Engine(store=store)
+        try:
+            completion, already = await engine.complete_event(
+                event_id, summary=summary, sync=targets
+            )
+        except KeyError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(
+            f"Event '{event_id}' completed"
+            f"{' (already completed)' if already else ''}."
+            f" summary={completion.summary!r}"
+        )
+        for item in completion.sync_results:
+            flag = "ok" if item.ok else "FAIL"
+            typer.echo(f"  sync {item.target}: {flag} — {item.detail}")
+        if any(not item.ok for item in completion.sync_results):
+            raise typer.Exit(code=1)
+
+    _run_with_store(_run)
 
 
 # ── Channel ──────────────────────────────────────────────────────────────────

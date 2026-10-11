@@ -11,7 +11,7 @@ Repo: https://github.com/fritzprix/pboy/issues
 | Engine normalize→route→exec | ✅ | ✅ |
 | Long-running daemon + inject/hooks API | ✅ | ✅ M1 |
 | Real inbound channel | ❌ | ✅ M2 (Telegram first) |
-| `event complete` + outbound sync | ❌ | ✅ M3 |
+| `event complete` + outbound sync | ✅ M3 | ✅ M3 |
 | Slack / Jira / Confluence / relay | ❌ | ✅ M4 |
 | Web UI | ❌ | ✅ M5 |
 | CI, packaging, hardening, ops docs | ❌ | ✅ M6 |
@@ -33,11 +33,11 @@ M2 First channel
   #7  channel CLI config         ✅
        │
 M3 Outbound
-  #8  event complete persist     ← next
-  #9  sync telegram reply
+  #8  event complete persist     ✅
+  #9  sync telegram reply        ✅
        │
 M4 Multi-channel
-  #10 Slack Socket Mode
+  #10 Slack Socket Mode          ← next
   #11 Jira/Confluence + relay
   #12 outbound jira/slack
        │

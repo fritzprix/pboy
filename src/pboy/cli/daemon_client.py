@@ -104,6 +104,30 @@ class DaemonClient:
         response.raise_for_status()
         return CloudEvent.model_validate(response.json())
 
+    def get_event_detail(self, event_id: str) -> dict[str, Any] | None:
+        response = self._request("GET", f"/v1/events/{event_id}")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def complete_event(
+        self,
+        event_id: str,
+        *,
+        summary: str = "Completed",
+        sync: list[str] | None = None,
+    ) -> dict[str, Any]:
+        response = self._request(
+            "POST",
+            f"/v1/events/{event_id}/complete",
+            json={"summary": summary, "sync": list(sync or [])},
+        )
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
     def list_hooks(self) -> list[Hook]:
         response = self._request("GET", "/v1/hooks")
         response.raise_for_status()

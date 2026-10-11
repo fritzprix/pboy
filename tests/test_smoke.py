@@ -48,10 +48,9 @@ def test_cli_version(cli_runner: CliRunner) -> None:
 
 def test_cli_stubs_fail_loudly(cli_runner: CliRunner) -> None:
     """Unimplemented commands must exit non-zero with a clear message."""
-    for args in (["ui"], ["event", "complete", "evt_demo"]):
-        res = cli_runner.invoke(app, args)
-        assert res.exit_code == 1
-        assert "not implemented" in res.output.lower()
+    res = cli_runner.invoke(app, ["ui"])
+    assert res.exit_code == 1
+    assert "not implemented" in res.output.lower()
 
 
 def test_cloudevent_model() -> None:
