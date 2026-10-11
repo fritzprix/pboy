@@ -14,9 +14,12 @@ REQUIRED_ENV = (
     "PB_EVENT_ID",
     "PB_SOURCE",
     "PB_HOOK_NAME",
-    "PB_DAEMON_URL",
 )
-OPTIONAL_ENV = ("PB_LEASE_TOKEN",)
+OPTIONAL_ENV = (
+    "PB_LEASE_TOKEN",
+    "PB_DAEMON_URL",
+    "PB_AUTH_TOKEN",
+)
 
 
 def main() -> None:

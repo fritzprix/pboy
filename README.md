@@ -4,19 +4,20 @@
 
 Slack, Telegram, Jira, Confluence 이벤트를 CloudEvents v1.0으로 정규화하고, 매칭된 훅을 로컬 subprocess 하네스로 실행하는 도구입니다.
 
-> **Alpha 상태:** 코어(모델/스토어/정규화/라우팅/하네스 실행/부분 CLI)만 동작합니다.
-> `daemon`, `ui`, `event complete`, 채널 어댑터는 아직 미구현이며 호출 시 non-zero로 실패합니다.
+> **Alpha 상태:** 코어 + 로컬 데몬(` /healthz`, `/v1/events`, `/v1/hooks`, state API)까지 동작합니다.
+> `ui`, `event complete`, 채널 어댑터는 아직 미구현이며 호출 시 non-zero로 실패합니다.
 
 ## 현재 동작하는 것
 
 | 기능 | 상태 |
 |------|------|
-| `pboy hook register/list/delete` | ✅ |
-| `pboy state put/get` | ✅ |
-| `pboy event list/get` | ✅ |
+| `pboy hook register/list/delete` | ✅ (데몬 모드 시 HTTP) |
+| `pboy state put/get` | ✅ (데몬 모드 시 HTTP) |
+| `pboy event list/get` | ✅ (데몬 모드 시 HTTP) |
 | Engine: normalize → store → match → lease → subprocess | ✅ |
 | AES-256-GCM secret storage | ✅ |
-| `pboy daemon` + `/healthz` + `POST /v1/events` | ✅ |
+| `pboy daemon` + `/healthz` + `/v1/events` + `/v1/hooks` | ✅ |
+| Daemon auth (`PB_AUTH_TOKEN` / `X-PB-Token`) | ✅ |
 | `pboy ui` / `event complete` | ❌ 미구현 (명시적 실패) |
 | 채널 수신 (Slack/Telegram/Jira) | ❌ 미구현 |
 
@@ -60,22 +61,27 @@ pip install -e ".[dev]"
 ## 데몬 시작
 
 ```bash
+export PB_AUTH_TOKEN=dev-secret   # 권장: mutating API 보호
 pboy daemon --host 127.0.0.1 --port 8080
 # 다른 터미널:
 curl -sf http://127.0.0.1:8080/healthz
 ```
 
 ```bash
-# 이벤트 주입 (daemon 실행 중)
+# 이벤트 주입 (daemon 실행 중; 토큰 필요 시 헤더 포함)
 curl -sX POST http://127.0.0.1:8080/v1/events \
   -H 'content-type: application/json' \
+  -H "X-PB-Token: $PB_AUTH_TOKEN" \
   -d '{"source":"jira","payload":{...},"dispatch":true}'
 ```
 
-하네스/CLI가 데몬 DB에 쓰려면 **`PB_DAEMON_URL`을 명시**하세요 (미설정 시 로컬 SQLite 직접 접근):
+하네스/CLI가 데몬과 동일 DB를 쓰려면 **`PB_DAEMON_URL`을 명시**하세요 (미설정 시 로컬 SQLite).  
+데몬이 기동되면 harness에는 실제 bind URL이 주입됩니다. mutating 호출에는 `PB_AUTH_TOKEN`도 함께:
 
 ```bash
 export PB_DAEMON_URL=http://127.0.0.1:8080
+export PB_AUTH_TOKEN=dev-secret
+pboy hook register --name demo --topic 'jira:issue.created' --exec 'echo ok' --timeout 30
 pboy state put --event-id "$PB_EVENT_ID" --status running --progress 50
 pboy event list
 ```

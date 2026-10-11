@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import runpy
+import subprocess
 import sys
 from pathlib import Path
 
@@ -176,9 +176,13 @@ def test_cli_main_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc.value.code == 0
 
 
-def test_cli_dunder_main(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify running pboy.cli.main as __main__ invokes entry point."""
-    monkeypatch.setattr(sys, "argv", ["pboy", "--version"])
-    with pytest.raises(SystemExit) as exc:
-        runpy.run_module("pboy.cli.main", run_name="__main__")
-    assert exc.value.code == 0
+def test_cli_dunder_main() -> None:
+    """Verify ``python -m pboy.cli.main`` entry works in a clean process."""
+    result = subprocess.run(
+        [sys.executable, "-m", "pboy.cli.main", "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "0.1.0" in result.stdout

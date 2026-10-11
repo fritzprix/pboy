@@ -129,3 +129,33 @@ async def test_executor_passes_lease_token_in_env(tmp_store: SQLiteStore, dummy_
     assert result.exit_code == 0
     assert result.stdout is not None
     assert "test_lease_token_val_42" in result.stdout
+
+
+@pytest.mark.asyncio
+async def test_executor_injects_daemon_url_only_when_configured(
+    tmp_store: SQLiteStore,
+    dummy_event: CloudEvent,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pboy.core.config as config_mod
+    from pboy.core.config import Settings
+
+    cfg = Settings(daemon_url="http://127.0.0.1:9090", auth_token="tok")
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    executor = HarnessExecutor(store=tmp_store)
+    hook = Hook(
+        name="daemon-env",
+        topic="test:event.created",
+        exec=(
+            f"{sys.executable} -c "
+            "'import os; print(os.environ.get(\"PB_DAEMON_URL\",\"\")); "
+            "print(os.environ.get(\"PB_AUTH_TOKEN\",\"\"))'"
+        ),
+        timeout=10,
+    )
+    result = await executor.run(hook, dummy_event)
+    assert result.status == "completed"
+    assert result.stdout is not None
+    assert "http://127.0.0.1:9090" in result.stdout
+    assert "tok" in result.stdout

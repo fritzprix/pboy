@@ -7,19 +7,24 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 
 from pboy.core.engine import Engine
+from pboy.daemon.auth import require_daemon_auth
 from pboy.daemon.schemas import (
     EventInjectRequest,
     EventInjectResponse,
     EventListItem,
     EventListResponse,
     ExecutionSummary,
+    HookCreateRequest,
+    HookDeleteResponse,
+    HookListResponse,
     StateGetResponse,
     StatePutRequest,
     StatePutResponse,
 )
+from pboy.models.hook import Hook
 from pboy.store.sqlite import SQLiteStore
 
 
@@ -58,7 +63,11 @@ def create_app(
             "db_path": app.state.db_path,
         }
 
-    @app.post("/v1/events", response_model=EventInjectResponse)
+    @app.post(
+        "/v1/events",
+        response_model=EventInjectResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
     async def inject_event(body: EventInjectRequest, request: Request) -> EventInjectResponse:
         eng: Engine = request.app.state.engine
         event, matched, executions = await eng.process_event(
@@ -106,7 +115,11 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Event '{event_id}' not found")
         return event.model_dump()
 
-    @app.put("/v1/events/{event_id}/state", response_model=StatePutResponse)
+    @app.put(
+        "/v1/events/{event_id}/state",
+        response_model=StatePutResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
     async def put_state(
         event_id: str, body: StatePutRequest, request: Request
     ) -> StatePutResponse:
@@ -123,5 +136,32 @@ def create_app(
         eng: Engine = request.app.state.engine
         value = await eng.store.get_state(event_id, key)
         return StateGetResponse(event_id=event_id, key=key, value=value)
+
+    @app.get("/v1/hooks", response_model=HookListResponse)
+    async def list_hooks(request: Request) -> HookListResponse:
+        eng: Engine = request.app.state.engine
+        hooks = await eng.store.list_hooks()
+        return HookListResponse(hooks=hooks)
+
+    @app.post(
+        "/v1/hooks",
+        response_model=Hook,
+        dependencies=[Depends(require_daemon_auth)],
+    )
+    async def create_hook(body: HookCreateRequest, request: Request) -> Hook:
+        eng: Engine = request.app.state.engine
+        return await eng.store.create_hook(body)
+
+    @app.delete(
+        "/v1/hooks/{name}",
+        response_model=HookDeleteResponse,
+        dependencies=[Depends(require_daemon_auth)],
+    )
+    async def delete_hook(name: str, request: Request) -> HookDeleteResponse:
+        eng: Engine = request.app.state.engine
+        deleted = await eng.store.delete_hook(name)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Hook '{name}' not found")
+        return HookDeleteResponse(deleted=True, name=name)
 
     return app

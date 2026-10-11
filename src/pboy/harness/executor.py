@@ -62,9 +62,13 @@ class HarnessExecutor:
                 "PB_EVENT_ID": event.id,
                 "PB_SOURCE": event.source,
                 "PB_HOOK_NAME": hook.name,
-                "PB_DAEMON_URL": settings.daemon_url,
             }
         )
+        # Only inject daemon URL when the daemon process configured one (non-empty).
+        if settings.daemon_url.strip():
+            env["PB_DAEMON_URL"] = settings.daemon_url.strip()
+        if settings.auth_token.strip():
+            env["PB_AUTH_TOKEN"] = settings.auth_token.strip()
         if lease_token:
             env["PB_LEASE_TOKEN"] = lease_token
 

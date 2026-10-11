@@ -95,6 +95,18 @@ def ui_cmd(
     _not_implemented("ui")
 
 
+def _daemon_http_error(exc: httpx.HTTPError) -> NoReturn:
+    typer.echo(f"Daemon request failed: {exc}", err=True)
+    raise typer.Exit(code=1) from exc
+
+
+def _daemon_client_or_none() -> DaemonClient | None:
+    url = resolve_daemon_url()
+    if not url:
+        return None
+    return DaemonClient(url)
+
+
 # ── Hooks ────────────────────────────────────────────────────────────────────
 @hook_app.command("register")
 def hook_register(
@@ -109,7 +121,7 @@ def hook_register(
         int, typer.Option("--timeout", "-t", help="Timeout in seconds", min=1)
     ] = 180,
 ) -> None:
-    """Register a new event hook."""
+    """Register a new event hook (daemon HTTP when PB_DAEMON_URL is set)."""
     try:
         hook_data = HookCreate(
             name=name,
@@ -123,6 +135,15 @@ def hook_register(
         typer.echo(f"Invalid hook: {exc.errors()[0]['msg']}", err=True)
         raise typer.Exit(code=1) from exc
 
+    client = _daemon_client_or_none()
+    if client is not None:
+        try:
+            hook = client.create_hook(hook_data)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        typer.echo(f"Hook '{hook.name}' registered for topic '{hook.topic}'.")
+        return
+
     async def _run(store: SQLiteStore) -> None:
         hook = await store.create_hook(hook_data)
         typer.echo(f"Hook '{hook.name}' registered for topic '{hook.topic}'.")
@@ -132,7 +153,20 @@ def hook_register(
 
 @hook_app.command("list")
 def hook_list() -> None:
-    """List all registered hooks."""
+    """List all registered hooks (daemon HTTP when PB_DAEMON_URL is set)."""
+    client = _daemon_client_or_none()
+    if client is not None:
+        try:
+            hooks = client.list_hooks()
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        if not hooks:
+            typer.echo("No registered hooks found.")
+            return
+        for h in hooks:
+            typer.echo(f"• {h.name} [{h.status}] - topic: {h.topic} - exec: {h.exec}")
+        return
+
     async def _run(store: SQLiteStore) -> None:
         hooks = await store.list_hooks()
         if not hooks:
@@ -148,7 +182,19 @@ def hook_list() -> None:
 def hook_delete(
     name: Annotated[str, typer.Argument(help="Hook name to delete")],
 ) -> None:
-    """Delete a hook by name."""
+    """Delete a hook by name (daemon HTTP when PB_DAEMON_URL is set)."""
+    client = _daemon_client_or_none()
+    if client is not None:
+        try:
+            deleted = client.delete_hook(name)
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        if deleted:
+            typer.echo(f"Hook '{name}' deleted.")
+        else:
+            typer.echo(f"Hook '{name}' not found.", err=True)
+        return
+
     async def _run(store: SQLiteStore) -> None:
         deleted = await store.delete_hook(name)
         if deleted:
@@ -157,11 +203,6 @@ def hook_delete(
             typer.echo(f"Hook '{name}' not found.", err=True)
 
     _run_with_store(_run)
-
-
-def _daemon_http_error(exc: httpx.HTTPError) -> NoReturn:
-    typer.echo(f"Daemon request failed: {exc}", err=True)
-    raise typer.Exit(code=1) from exc
 
 
 # ── State ────────────────────────────────────────────────────────────────────

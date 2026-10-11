@@ -71,9 +71,12 @@ HARNESS_ENV_REQUIRED: Final[tuple[str, ...]] = (
     "PB_EVENT_ID",
     "PB_SOURCE",
     "PB_HOOK_NAME",
-    "PB_DAEMON_URL",
 )
-HARNESS_ENV_OPTIONAL: Final[tuple[str, ...]] = ("PB_LEASE_TOKEN",)
+HARNESS_ENV_OPTIONAL: Final[tuple[str, ...]] = (
+    "PB_LEASE_TOKEN",
+    "PB_DAEMON_URL",
+    "PB_AUTH_TOKEN",
+)
 HARNESS_TERMINAL_STATUSES: Final[frozenset[str]] = frozenset(
     {"completed", "failed", "timeout"}
 )

@@ -1,5 +1,9 @@
-"""CLI module for Pageboy."""
+"""CLI module for Pageboy.
 
-from pboy.cli.main import app, main
+Note: do not re-export ``main`` here — that shadows the ``pboy.cli.main`` submodule.
+Entry point remains ``pboy.cli.main:main`` in pyproject.toml.
+"""
 
-__all__ = ["app", "main"]
+from pboy.cli.main import app
+
+__all__ = ["app"]

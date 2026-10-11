@@ -9,7 +9,7 @@ Repo: https://github.com/fritzprix/pboy/issues
 |---|---|---|
 | Hook / state / event CLI | ✅ | ✅ |
 | Engine normalize→route→exec | ✅ | ✅ |
-| Long-running daemon + inject API | ❌ | ✅ M1 |
+| Long-running daemon + inject/hooks API | ✅ | ✅ M1 |
 | Real inbound channel | ❌ | ✅ M2 (Telegram first) |
 | `event complete` + outbound sync | ❌ | ✅ M3 |
 | Slack / Jira / Confluence / relay | ❌ | ✅ M4 |
@@ -23,6 +23,7 @@ M1 Daemon spine
   #1  Daemon + /healthz          ✅
   #2  POST /v1/events inject     ✅
   #3  PB_DAEMON_URL-aware CLI    ✅
+  #19–#23 Audit remediation      ✅ (cli shadowing, daemon URL, hooks API, auth, tests/docs)
   #4  Schema migrations          ← next
        │
 M2 First channel

@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from pboy.models.hook import Hook, HookCreate
+
 EventSource = Literal["jira", "slack", "telegram", "confluence", "generic"]
 
 
@@ -60,3 +62,16 @@ class EventListItem(BaseModel):
 
 class EventListResponse(BaseModel):
     events: list[EventListItem]
+
+
+class HookListResponse(BaseModel):
+    hooks: list[Hook]
+
+
+class HookCreateRequest(HookCreate):
+    """Create hook payload (same fields as HookCreate)."""
+
+
+class HookDeleteResponse(BaseModel):
+    deleted: bool
+    name: str
