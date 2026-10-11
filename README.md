@@ -5,8 +5,8 @@
 Telegram·Slack 등 **wake-up 채널** 이벤트를 CloudEvents v1.0으로 정규화하고, 매칭된 훅(에이전트 harness)을 로컬 subprocess로 실행하는 도구입니다.  
 Jira/Confluence는 데몬 webhook이 아니라 **에이전트가 REST로 pull/update**하는 작업면으로 둡니다 ([`docs/architecture-channels.md`](docs/architecture-channels.md)).
 
-> **Alpha 상태:** 코어 + 데몬 + Telegram/Slack wake-up + Telegram outbound까지 동작합니다.
-> Jira는 agent REST(문서화), UI는 미구현입니다.
+> **Alpha 상태:** 코어 + 데몬 + Telegram/Slack wake-up + Telegram outbound + `/ui` 대시보드(채널·비밀 폼 포함)까지 동작합니다.
+> Jira는 훅 exec 프로그램의 REST 작업면(웹훅 ChannelAdapter 아님).
 
 ## 현재 동작하는 것
 
@@ -20,7 +20,7 @@ Jira/Confluence는 데몬 webhook이 아니라 **에이전트가 REST로 pull/up
 | `pboy daemon` + `/healthz` + `/v1/events` + `/v1/hooks` | ✅ |
 | Daemon auth (`PB_AUTH_TOKEN` / `X-PB-Token`) | ✅ |
 | `pboy event complete` (+ `--sync telegram`) | ✅ |
-| `pboy ui` | ❌ 미구현 (명시적 실패) |
+| `pboy daemon --ui` / `pboy ui` | ✅ 대시보드 + 채널/비밀 폼 (`/ui`, `/ui/settings`) |
 | Channel adapter registry (`PB_CHANNELS_ENABLED`) | ✅ |
 | Telegram long-poll inbound | ✅ (`PB_TELEGRAM_BOT_TOKEN` / secret) |
 | `pboy channel list/enable/disable/set-secret` | ✅ |
@@ -89,8 +89,9 @@ rm -f ~/.local/share/pboy/pboy.db
 export PB_AUTH_TOKEN=dev-secret
 export PB_DAEMON_URL=http://127.0.0.1:8080
 
-# 터미널 1
-pboy daemon --host 127.0.0.1 --port 8080
+# 터미널 1 — API + 선택적 대시보드
+pboy daemon --host 127.0.0.1 --port 8080 --ui
+# 브라우저: http://127.0.0.1:8080/ui
 
 # 터미널 2
 curl -sf "$PB_DAEMON_URL/healthz"
@@ -159,7 +160,7 @@ pboy/
 │   ├── channels/    # Telegram long-poll (+ fake); Slack later
 │   ├── store/       # SQLite + AES-GCM secrets
 │   ├── harness/     # Subprocess executor
-│   ├── ui/          # (planned) local dashboard
+│   ├── ui/          # embedded read-only dashboard (HTMX)
 │   └── models/      # CloudEvents / Hook / Execution
 ├── scripts/smoke_demo.sh
 ├── tests/

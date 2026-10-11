@@ -1,0 +1,24 @@
+{% if events %}
+<table>
+  <thead>
+    <tr>
+      <th scope="col">ID</th>
+      <th scope="col">Source</th>
+      <th scope="col">Type</th>
+      <th scope="col">Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in events %}
+    <tr>
+      <td class="mono">{{ e.id }}</td>
+      <td>{{ e.source }}</td>
+      <td class="mono truncate" title="{{ e.type }}">{{ e.type }}</td>
+      <td class="mono">{{ e.time }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No events yet.</p>
+{% endif %}

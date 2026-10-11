@@ -165,7 +165,8 @@ class ChannelRegistry:
             self._running = [n for n in self._running if n != key]
             logger.info("channel.stopped name={}", key)
 
-    def _env_covers_secret(self, secret_key: str) -> bool:
+    def env_covers_secret(self, secret_key: str) -> bool:
+        """True when the matching ``PB_*`` env already supplies this secret."""
         if secret_key == "telegram.bot_token":
             return bool(self._settings.telegram_bot_token.strip())
         if secret_key == "slack.bot_token":
@@ -197,7 +198,7 @@ class ChannelRegistry:
             has_secret = True
             if keys:
                 for sk in keys:
-                    if self._env_covers_secret(sk):
+                    if self.env_covers_secret(sk):
                         continue
                     if (await self._store.get_secret(sk)) is None:
                         has_secret = False

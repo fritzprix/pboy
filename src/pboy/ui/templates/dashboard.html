@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Pageboy · 한눈에{% endblock %}
+{% block content %}
+<p class="lede">
+  채널 토큰·켜기는
+  <a href="/ui/settings{{ ui_token_q }}">채널·비밀값</a>
+  에서 설정합니다. 아래는 현재 훅·이벤트·실행 기록입니다.
+</p>
+<section class="panel">
+  <div class="panel-head">
+    <h2>Hooks</h2>
+    <span class="hint">auto-refresh 5s</span>
+  </div>
+  <div
+    id="hooks"
+    hx-get="/ui/partials/hooks"
+    hx-trigger="every 5s"
+    hx-swap="innerHTML"
+  >
+    {% include "partials/hooks.html" %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Recent events</h2>
+  </div>
+  <div
+    id="events"
+    hx-get="/ui/partials/events"
+    hx-trigger="every 5s"
+    hx-swap="innerHTML"
+  >
+    {% include "partials/events.html" %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Recent executions</h2>
+  </div>
+  <div
+    id="executions"
+    hx-get="/ui/partials/executions"
+    hx-trigger="every 5s"
+    hx-swap="innerHTML"
+  >
+    {% include "partials/executions.html" %}
+  </div>
+</section>
+{% endblock %}

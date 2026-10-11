@@ -1,0 +1,30 @@
+{% if hooks %}
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col">Topic</th>
+      <th scope="col">Filter</th>
+      <th scope="col">Exec</th>
+      <th scope="col">Concurrency</th>
+      <th scope="col">Timeout</th>
+      <th scope="col">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for h in hooks %}
+    <tr>
+      <td class="mono">{{ h.name }}</td>
+      <td class="mono">{{ h.topic }}</td>
+      <td class="mono truncate" title="{{ h.filter or '' }}">{{ h.filter or "—" }}</td>
+      <td class="mono truncate" title="{{ h.exec }}">{{ h.exec }}</td>
+      <td>{{ h.concurrency }}</td>
+      <td>{{ h.timeout }}s</td>
+      <td>{{ h.status }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No hooks registered.</p>
+{% endif %}

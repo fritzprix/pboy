@@ -51,15 +51,6 @@ def main_callback(
     pass
 
 
-def _not_implemented(feature: str) -> None:
-    """Exit with a clear error for Alpha features that are not wired yet."""
-    typer.echo(
-        f"Error: '{feature}' is not implemented in this Alpha release.",
-        err=True,
-    )
-    raise typer.Exit(code=1)
-
-
 def _run_with_store(coro_fn: Callable[[SQLiteStore], Coroutine[Any, Any, T]]) -> T:
     """Execute an async operation with an initialized SQLiteStore, ensuring cleanup."""
     async def _runner() -> T:
@@ -81,7 +72,7 @@ def daemon_cmd(
     port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = 8080,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
-    """Start local daemon HTTP API (UI flag reserved until M5)."""
+    """Start local daemon HTTP API (optional ``--ui`` dashboard at ``/ui``)."""
     from pboy.daemon.server import run_daemon
 
     run_daemon(host=host, port=port, db=db, ui=ui)
@@ -90,11 +81,14 @@ def daemon_cmd(
 # ── UI ───────────────────────────────────────────────────────────────────────
 @app.command("ui")
 def ui_cmd(
+    host: Annotated[str, typer.Option("--host", help="Bind host")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = 8080,
+    db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
-    """Launch the local web UI dashboard."""
-    del port  # reserved for future UI wiring
-    _not_implemented("ui")
+    """Launch the daemon with the embedded read-only dashboard (``/ui``)."""
+    from pboy.daemon.server import run_daemon
+
+    run_daemon(host=host, port=port, db=db, ui=True)
 
 
 def _daemon_http_error(exc: httpx.HTTPError) -> NoReturn:

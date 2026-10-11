@@ -59,6 +59,7 @@ def create_app(
     secret_key: str | None = None,
     settings: Settings | None = None,
     extra_adapters: list[ChannelAdapter] | None = None,
+    enable_ui: bool = False,
 ) -> FastAPI:
     """Build daemon app with a dedicated Engine/store/channel lifecycle."""
     cfg = settings or get_settings()
@@ -76,6 +77,7 @@ def create_app(
     app.state.engine = engine
     app.state.db_path = str(store.db_path)
     app.state.channel_registry = registry
+    app.state.ui_enabled = enable_ui
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, Any]:
@@ -295,5 +297,10 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return SecretPutResponse(key=secret_key, stored=True)
+
+    if enable_ui:
+        from pboy.ui.mount import mount_ui
+
+        mount_ui(app)
 
     return app

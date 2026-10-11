@@ -103,10 +103,16 @@ STORE_REQUIRED_METHODS: Final[tuple[str, ...]] = (
 )
 
 # ── CLI surface ──────────────────────────────────────────────────────────────
-CLI_IMPLEMENTED_GROUPS: Final[tuple[str, ...]] = ("hook", "state", "event", "daemon", "channel")
-CLI_NOT_IMPLEMENTED: Final[tuple[tuple[str, ...], ...]] = (
-    ("ui",),
+CLI_IMPLEMENTED_GROUPS: Final[tuple[str, ...]] = (
+    "hook",
+    "state",
+    "event",
+    "daemon",
+    "channel",
+    "ui",
 )
+# Empty while Alpha has no remaining stub CLI groups; keep for future stubs.
+CLI_NOT_IMPLEMENTED: Final[tuple[tuple[str, ...], ...]] = ()
 
 # ── Event completion ─────────────────────────────────────────────────────────
 COMPLETION_STATE_KEY: Final = "completion"

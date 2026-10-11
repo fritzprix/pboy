@@ -1,0 +1,28 @@
+{% if executions %}
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Execution</th>
+      <th scope="col">Hook</th>
+      <th scope="col">Event</th>
+      <th scope="col">Status</th>
+      <th scope="col">Exit</th>
+      <th scope="col">Started</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for x in executions %}
+    <tr>
+      <td class="mono">{{ x.execution_id }}</td>
+      <td class="mono">{{ x.hook_name }}</td>
+      <td class="mono truncate" title="{{ x.event_id }}">{{ x.event_id }}</td>
+      <td><span class="status status-{{ x.status }}">{{ x.status }}</span></td>
+      <td>{% if x.exit_code is not none %}{{ x.exit_code }}{% else %}—{% endif %}</td>
+      <td class="mono">{{ x.started_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No executions yet.</p>
+{% endif %}

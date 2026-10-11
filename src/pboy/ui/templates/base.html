@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Pageboy{% endblock %}</title>
+  <link rel="stylesheet" href="/ui/static/dashboard.css" />
+  <script src="/ui/static/htmx.min.js" defer></script>
+</head>
+<body{% if ui_token %} hx-headers='{"X-PB-Token": "{{ ui_token }}"}'{% endif %}>
+  <header class="top">
+    <div class="brand-row">
+      <div class="brand">
+        <a href="/ui{{ ui_token_q }}">Pageboy</a>
+        <span class="tag">local</span>
+      </div>
+      <nav class="nav" aria-label="주요 메뉴">
+        <a href="/ui{{ ui_token_q }}" class="{% if page == 'overview' %}active{% endif %}">한눈에</a>
+        <a href="/ui/settings{{ ui_token_q }}" class="{% if page == 'settings' %}active{% endif %}">채널·비밀값</a>
+        {% if auth_configured %}
+        {% if has_session %}
+        <form class="inline" method="post" action="/ui/logout">
+          <button type="submit" class="linkish">로그아웃</button>
+        </form>
+        {% else %}
+        <a href="/ui/login" class="{% if page == 'login' %}active{% endif %}">로그인</a>
+        {% endif %}
+        {% endif %}
+      </nav>
+    </div>
+    <p class="sub">{% block subtitle %}로컬 대시보드 — 이 PC의 Pageboy 상태를 보고, 채널 열쇠를 넣을 수 있습니다.{% endblock %}</p>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

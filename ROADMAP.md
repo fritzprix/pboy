@@ -16,7 +16,7 @@ Architecture note (channels vs ticketing): [`docs/architecture-channels.md`](doc
 | `event complete` + Telegram outbound | ✅ M3 | ✅ |
 | Jira/Confluence as agent REST work surface | docs ✅ | secrets + examples (no webhook required) |
 | Jira webhook / relay | ❌ deferred | optional only |
-| Web UI | ❌ | ✅ M5 |
+| Web UI | ✅ shell + channel/secret forms | ✅ M5 |
 | CI, packaging, hardening, ops docs | partial | ✅ M6 |
 
 ## Sequential plan (implement → verify → next)
@@ -45,13 +45,13 @@ M4 Wake-up channels (revised)
   #12 outbound jira/slack        ⏸ jira sync deferred; slack thread optional later
        │
 M5 Web UI
-  #13 dashboard shell            ← next
-  #14 secrets/channel forms
+  #13 dashboard shell            ✅
+  #14 secrets/channel forms      ✅
 
        │
 M6 Hardening (can start early in parallel)
   #15 CI workflow                ✅
-  #16 PyPI / uvx release
+  #16 PyPI / uvx release         ← next
   #17 security checklist
   #18 operator docs
 ```

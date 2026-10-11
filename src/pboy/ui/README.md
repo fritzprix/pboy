@@ -1,32 +1,42 @@
 # UI — `pboy.ui`
 
-`pboy.ui` — 임베디드 로컬 웹 대시보드
+Embedded local dashboard mounted when `pboy daemon --ui` or `pboy ui` runs.
 
-## 모듈 구조
+## Layout
 
-| 파일 | 설명 |
+| Path | Role |
 |------|------|
-| `app.py` | FastAPI 앱 (로컬 대시보드) |
-| `routes.py` | REST API 라우트 (훅, 이벤트, 실행 이력) |
-| `console.py` | Live Console (stdout/stderr 실시간 스트리밍) |
+| `mount.py` | Routes: overview, settings forms, login, HTMX partials |
+| `guides.py` | Layman copy, official links, field tooltips |
+| `templates/` | Jinja2 pages + partials |
+| `static/` | CSS + vendored HTMX |
 
-## 기능
+## Pages
 
-### 대시보드 (`localhost:8080`)
+| Path | Role |
+|------|------|
+| `/ui` | Overview — hooks / events / executions (read-only refresh) |
+| `/ui/settings` | Channel tokens + enable/disable + optional Jira harness secrets |
+| `/ui/login` | Password = `PB_AUTH_TOKEN` (sets HttpOnly cookie) |
+| `/ui/static/*` | Assets (no auth) |
 
-- **Integrations 탭**: Jira/Confluence 고정 웹훅 URL 발급, Slack/TG 토큰 입력
-- **Hooks 탭**: 이벤트 필터 (JQ 문법), 트리거 대상 하네스 경로, 동시 실행 수, 타임아웃
-- **Live Console**: 현재 실행 중인 하네스의 CPU/메모리/stdout/stderr 스트리밍
+Secrets are accepted via POST forms and **never rendered back** in full (only “저장됨”).
 
-### REST API
+## Access
 
-| Method | Path | 설명 |
-|--------|------|------|
-| GET | `/api/hooks` | 훅 목록 |
-| POST | `/api/hooks` | 훅 등록 |
-| PUT | `/api/hooks/{name}` | 훅 수정 |
-| DELETE | `/api/hooks/{name}` | 훅 삭제 |
-| GET | `/api/events` | 이벤트 로그 |
-| GET | `/api/events/{id}` | 이벤트 상세 |
-| GET | `/api/executions` | 실행 이력 |
-| GET | `/api/executions/{id}/log` | stdout/stderr 스트리밍 |
+- **Loopback** read: always allowed.
+- **Non-loopback** read: token / signed session cookie / `?token=`.
+- **Mutations** (save secret, enable channel): if `PB_AUTH_TOKEN` is set, login
+  cookie (HMAC session) or header required even on loopback.
+- **CSRF**: UI POSTs with `Sec-Fetch-Site: cross-site` (or a foreign `Origin`) are
+  rejected — mitigates evil.com → `127.0.0.1` form posts when no auth token is set.
+- **Remote access**: prefer loopback or put TLS (Caddy/nginx) in front; the session
+  cookie is `HttpOnly` + `SameSite=Lax` but not `Secure` (plain `http://127.0.0.1`).
+
+## Operator entry
+
+```bash
+export PB_AUTH_TOKEN=dev-secret
+pboy daemon --host 127.0.0.1 --port 8080 --ui
+# http://127.0.0.1:8080/ui/settings
+```

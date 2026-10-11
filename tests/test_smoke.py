@@ -46,13 +46,6 @@ def test_cli_version(cli_runner: CliRunner) -> None:
     assert "0.1.0" in res.output
 
 
-def test_cli_stubs_fail_loudly(cli_runner: CliRunner) -> None:
-    """Unimplemented commands must exit non-zero with a clear message."""
-    res = cli_runner.invoke(app, ["ui"])
-    assert res.exit_code == 1
-    assert "not implemented" in res.output.lower()
-
-
 def test_cloudevent_model() -> None:
     """Verify CloudEvents v1.0 model instantiation and serialization."""
     event = CloudEvent(
