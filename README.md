@@ -33,11 +33,9 @@ Jira/Confluence는 데몬 webhook이 아니라 **훅이 실행하는 프로그�
 ```bash
 uv sync --extra dev
 
-# 선택·권장: 대시보드 저장/원격 접근용 비밀번호
-export PB_AUTH_TOKEN=dev-secret
-
 pboy ui
 # 같음: pboy daemon --host 127.0.0.1 --port 8080 --ui
+# 토큰 없이 로컬만 쓸 때는 로그인 불필요
 ```
 
 브라우저:
@@ -46,7 +44,7 @@ pboy ui
 2. [http://127.0.0.1:8080/ui/settings](http://127.0.0.1:8080/ui/settings) — Telegram / Slack 토큰 붙여넣기 · 채널 켜기  
    - 단계 안내 · 공식 링크 · 입력란 tooltip 포함  
    - 저장한 비밀값은 다시 보여 주지 않음 (`저장됨`만 표시)  
-3. `PB_AUTH_TOKEN`을 켠 경우 저장 전에 [/ui/login](http://127.0.0.1:8080/ui/login) (비밀번호 = 그 토큰)
+3. 리버스 프록시·LAN·`--host 0.0.0.0` 사용 시 **반드시** `PB_AUTH_TOKEN` 설정 (토큰이 있으면 루프백 포함 전 클라이언트에 강제). UI는 [/ui/login](http://127.0.0.1:8080/ui/login)  
 
 Jira는 wake-up 채널이 아닙니다. 설정 화면의 안내대로 Atlassian API 토큰을 **선택** 보관할 수 있고, 실제 호출은 훅 `exec` 프로그램이 합니다.
 
@@ -81,7 +79,7 @@ PyPI: [pypi.org/project/pboy](https://pypi.org/project/pboy/) · 릴리스: [`do
 
 | 변수 | 용도 |
 |------|------|
-| `PB_AUTH_TOKEN` | 데몬 변경 API · UI 로그인 (권장) |
+| `PB_AUTH_TOKEN` | 미설정=로컬(루프백+local Host)만. 설정 시 **모든** 클라이언트에 강제(프록시 안전). `--host 0.0.0.0` 기동 시 필수 |
 | `PB_DAEMON_URL` | CLI가 데몬 HTTP를 쓰게 함 (예: `http://127.0.0.1:8080`) |
 | `PB_TELEGRAM_BOT_TOKEN` / `PB_SLACK_*` | 채널 토큰 (UI `set-secret` 대신) |
 | `PB_CHANNELS_ENABLED` | 켜진 채널 목록 (UI enable 대신; 설정 시 store 갱신 제한) |
@@ -166,8 +164,8 @@ pboy channel set-secret slack --secret-name bot_token --value 'xoxb-...'
 pboy channel set-secret slack --secret-name app_token --value 'xapp-...'
 pboy channel enable slack
 
-export PB_AUTH_TOKEN=dev-secret
 pboy daemon --host 127.0.0.1 --port 8080 --ui
+# LAN 노출 시: export PB_AUTH_TOKEN=... && pboy daemon --host 0.0.0.0 --port 8080 --ui
 
 export PB_DAEMON_URL=http://127.0.0.1:8080
 pboy hook register --name tg-echo --topic 'telegram:message' --exec 'echo hi' --timeout 30

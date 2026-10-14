@@ -335,32 +335,46 @@ async def test_daemon_complete_requires_auth(
         settings=settings,
     )
     eng: Engine = app_api.state.engine
-    transport = ASGITransport(app=app_api)
-    async with (
-        app_api.router.lifespan_context(app_api),
-        AsyncClient(transport=transport, base_url="http://test") as client,
-    ):
-        event = await _seed_telegram_event(eng)
-        denied = await client.post(
-            f"/v1/events/{event.id}/complete",
-            json={"summary": "nope", "sync": []},
-        )
-        assert denied.status_code == 401
+    remote = ASGITransport(app=app_api, client=("203.0.113.10", 50000))
+    loopback = ASGITransport(app=app_api)
+    async with app_api.router.lifespan_context(app_api):
+        async with AsyncClient(transport=remote, base_url="http://test") as client:
+            event = await _seed_telegram_event(eng)
+            denied = await client.post(
+                f"/v1/events/{event.id}/complete",
+                json={"summary": "nope", "sync": []},
+            )
+            assert denied.status_code == 401
 
-        missing = await client.post(
-            f"/v1/events/{event.id}/complete",
-            json={"summary": "nope", "sync": []},
-            headers={"X-PB-Token": "wrong"},
-        )
-        assert missing.status_code == 401
+            missing = await client.post(
+                f"/v1/events/{event.id}/complete",
+                json={"summary": "nope", "sync": []},
+                headers={"X-PB-Token": "wrong"},
+            )
+            assert missing.status_code == 401
 
-        not_found = await client.post(
-            "/v1/events/evt_does_not_exist/complete",
-            json={"summary": "x", "sync": []},
-            headers={"X-PB-Token": "secret-auth"},
-        )
-        assert not_found.status_code == 404
-        assert not_found.json()["detail"] == "Event 'evt_does_not_exist' not found"
+            not_found = await client.post(
+                "/v1/events/evt_does_not_exist/complete",
+                json={"summary": "x", "sync": []},
+                headers={"X-PB-Token": "secret-auth"},
+            )
+            assert not_found.status_code == 404
+            assert not_found.json()["detail"] == "Event 'evt_does_not_exist' not found"
+
+        # Token set → loopback still requires the header (proxy-safe).
+        async with AsyncClient(transport=loopback, base_url="http://test") as client:
+            local_event = await _seed_telegram_event(eng)
+            denied_local = await client.post(
+                f"/v1/events/{local_event.id}/complete",
+                json={"summary": "nope", "sync": []},
+            )
+            assert denied_local.status_code == 401
+            local_ok = await client.post(
+                f"/v1/events/{local_event.id}/complete",
+                json={"summary": "with token", "sync": []},
+                headers={"X-PB-Token": "secret-auth"},
+            )
+            assert local_ok.status_code == 200
 
 
 @pytest.mark.asyncio

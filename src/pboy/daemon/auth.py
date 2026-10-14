@@ -13,7 +13,10 @@ from fastapi import Header, HTTPException, Query, Request
 
 from pboy.core.config import get_settings
 
-_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost", "testclient", "test"})
+# Peer IPs treated as loopback (ASGI test clients included).
+_LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1", "localhost", "testclient", "test"})
+# Host header values accepted in unauthenticated local mode (anti DNS-rebinding).
+_LOCAL_REQUEST_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "testclient", "test"})
 
 # HttpOnly cookie set by ``POST /ui/login`` (HMAC session, not the raw token).
 UI_SESSION_COOKIE = "pb_ui_session"
@@ -37,7 +40,37 @@ def _client_host(request: Request) -> str:
 
 
 def _is_loopback(host: str) -> bool:
-    return host in _LOOPBACK or host == ""
+    """True for known loopback peers. Empty / missing host fails closed."""
+    if not host:
+        return False
+    h = host.lower()
+    if h in _LOOPBACK_PEERS:
+        return True
+    # 127.0.0.0/8 (e.g. Debian 127.0.1.1)
+    return h.startswith("127.")
+
+
+def _is_local_request_host(hostname: str) -> bool:
+    if not hostname:
+        return False
+    h = hostname.lower()
+    if h in _LOCAL_REQUEST_HOSTS:
+        return True
+    return h.startswith("127.")
+
+
+def assert_local_request_host(request: Request) -> None:
+    """Reject non-local ``Host`` headers (DNS rebinding) in unauthenticated local mode."""
+    hostname = (request.url.hostname or "").lower()
+    if _is_local_request_host(hostname):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Unauthenticated local mode only accepts Host 127.0.0.1 / localhost / ::1. "
+            "Set PB_AUTH_TOKEN for reverse-proxy or remote access."
+        ),
+    )
 
 
 def tokens_match(provided: str | None, expected: str) -> bool:
@@ -124,6 +157,8 @@ def assert_ui_mutation_csrf(request: Request) -> None:
 
     Modern browsers send ``Sec-Fetch-Site: cross-site`` for evil.com → localhost.
     When that header is absent (curl/httpx/tests), fall back to Origin host checks.
+    Matching Origin==Host alone is not enough (DNS rebinding); the request Host must
+    also be a local name unless the operator has set ``PB_AUTH_TOKEN``.
     """
     site = (request.headers.get("sec-fetch-site") or "").lower()
     if site == "cross-site":
@@ -139,7 +174,7 @@ def assert_ui_mutation_csrf(request: Request) -> None:
     if not host:
         return
     req_host = (request.url.hostname or "").lower()
-    if host == req_host or _is_loopback(host):
+    if _is_loopback(host) or (_is_local_request_host(req_host) and host == req_host):
         return
     raise HTTPException(
         status_code=403,
@@ -154,12 +189,13 @@ async def require_daemon_auth(
 ) -> None:
     """Enforce auth on mutating API routes.
 
-    - If ``PB_AUTH_TOKEN`` is set: require matching ``X-PB-Token`` or Bearer token.
-    - If unset: allow loopback / ASGI test clients only.
+    - If ``PB_AUTH_TOKEN`` is set: require matching token for *all* clients
+      (including loopback — safe behind reverse proxies on the same host).
+    - If unset: allow loopback peers only, and only with a local ``Host`` header.
     """
     settings = get_settings()
-    provided = _extract_token(x_pb_token, authorization)
     expected = settings.auth_token.strip()
+    provided = _extract_token(x_pb_token, authorization)
 
     if expected:
         if not tokens_match(provided, expected):
@@ -167,6 +203,7 @@ async def require_daemon_auth(
         return
 
     if _is_loopback(_client_host(request)):
+        assert_local_request_host(request)
         return
     raise HTTPException(
         status_code=401,
@@ -182,27 +219,37 @@ async def require_ui_access(
 ) -> None:
     """Gate dashboard pages.
 
-    - Loopback / ASGI test clients: always allowed (local operator DX).
-    - Non-loopback: require matching ``PB_AUTH_TOKEN`` (header / Bearer / query / cookie).
+    - If ``PB_AUTH_TOKEN`` is set: require token / session for all clients.
+    - If unset: loopback + local ``Host`` only.
     """
     settings = get_settings()
     expected = settings.auth_token.strip()
 
+    if expected:
+        if ui_request_authorized(
+            request,
+            expected=expected,
+            x_pb_token=x_pb_token,
+            authorization=authorization,
+            token=token,
+        ):
+            return
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "UI requires a valid password/token. "
+                "Open /ui/login or pass ?token= / X-PB-Token."
+            ),
+        )
+
     if _is_loopback(_client_host(request)):
-        return
-    if expected and ui_request_authorized(
-        request,
-        expected=expected,
-        x_pb_token=x_pb_token,
-        authorization=authorization,
-        token=token,
-    ):
+        assert_local_request_host(request)
         return
     raise HTTPException(
         status_code=401,
         detail=(
             "UI requires loopback access or a valid password/token. "
-            "Open /ui/login or pass ?token= / X-PB-Token."
+            "Open /ui/login or set PB_AUTH_TOKEN for remote access."
         ),
     )
 
@@ -216,31 +263,33 @@ async def require_ui_mutation(
     """Gate UI form POSTs that change secrets / channel enablement.
 
     - Always reject ``Sec-Fetch-Site: cross-site`` (CSRF).
-    - If ``PB_AUTH_TOKEN`` unset: loopback only.
-    - If set: require matching token or signed session cookie, even on loopback.
+    - If ``PB_AUTH_TOKEN`` is set: require token / session for all clients
+      (including loopback — safe behind reverse proxies).
+    - If unset: loopback + local ``Host`` only.
     """
     assert_ui_mutation_csrf(request)
 
     settings = get_settings()
     expected = settings.auth_token.strip()
 
-    if not expected:
-        if _is_loopback(_client_host(request)):
+    if expected:
+        if ui_request_authorized(
+            request,
+            expected=expected,
+            x_pb_token=x_pb_token,
+            authorization=authorization,
+            token=token,
+        ):
             return
         raise HTTPException(
             status_code=401,
-            detail="Set PB_AUTH_TOKEN before mutating the UI from a non-loopback client",
+            detail="Login required to save settings. Open /ui/login and enter PB_AUTH_TOKEN.",
         )
 
-    if ui_request_authorized(
-        request,
-        expected=expected,
-        x_pb_token=x_pb_token,
-        authorization=authorization,
-        token=token,
-    ):
+    if _is_loopback(_client_host(request)):
+        assert_local_request_host(request)
         return
     raise HTTPException(
         status_code=401,
-        detail="Login required to save settings. Open /ui/login and enter PB_AUTH_TOKEN.",
+        detail="Set PB_AUTH_TOKEN before mutating the UI from a non-loopback client",
     )

@@ -24,19 +24,27 @@ Secrets are accepted via POST forms and **never rendered back** in full (only �
 
 ## Access
 
-- **Loopback** read: always allowed.
-- **Non-loopback** read: token / signed session cookie / `?token=`.
-- **Mutations** (save secret, enable channel): if `PB_AUTH_TOKEN` is set, login
-  cookie (HMAC session) or header required even on loopback.
+- **No `PB_AUTH_TOKEN`** (local-only): loopback peer + local `Host`
+  (`127.0.0.1` / `localhost` / `::1`) — no login. Non-local `Host` → 403
+  (DNS-rebinding defense). Bind beyond loopback without a token is refused at
+  startup.
+- **`PB_AUTH_TOKEN` set**: token / signed session required for **all** clients,
+  including loopback. This is required when putting Caddy/nginx/Cloudflare Tunnel
+  in front of `127.0.0.1` — otherwise the proxy peer looks like loopback and would
+  bypass auth.
 - **CSRF**: UI POSTs with `Sec-Fetch-Site: cross-site` (or a foreign `Origin`) are
-  rejected — mitigates evil.com → `127.0.0.1` form posts when no auth token is set.
-- **Remote access**: prefer loopback or put TLS (Caddy/nginx) in front; the session
-  cookie is `HttpOnly` + `SameSite=Lax` but not `Secure` (plain `http://127.0.0.1`).
+  rejected.
+- Session cookie is `HttpOnly` + `SameSite=Lax` but not `Secure` on plain `http://`.
 
 ## Operator entry
 
 ```bash
+# Local-only (no token)
+pboy daemon --host 127.0.0.1 --port 8080 --ui
+
+# Any reverse proxy / LAN / wildcard bind — set a token (enforced for everyone)
 export PB_AUTH_TOKEN=dev-secret
 pboy daemon --host 127.0.0.1 --port 8080 --ui
-# http://127.0.0.1:8080/ui/settings
+# or: pboy daemon --host 0.0.0.0 --port 8080 --ui
+# http://127.0.0.1:8080/ui/login
 ```

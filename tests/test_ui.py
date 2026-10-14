@@ -295,6 +295,28 @@ async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_ui_loopback_mutation_free_when_auth_unset(tmp_path: Path) -> None:
+    application = create_app(
+        db_path=tmp_path / "ui-local.db",
+        secret_key="ui-local-key",
+        enable_ui=True,
+    )
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        saved = await client.post(
+            "/ui/settings/harness-secret",
+            data={"key": "jira.api_token", "value": "ATATT-local"},
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        eng: Engine = application.state.engine
+        assert await eng.store.get_secret("jira.api_token") == "ATATT-local"
+
+
+@pytest.mark.asyncio
 async def test_ui_login_cookie_required_for_mutation_when_auth_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -310,11 +332,15 @@ async def test_ui_login_cookie_required_for_mutation_when_auth_set(
         settings=settings,
         enable_ui=True,
     )
+    # Loopback peer still needs login when token is configured (proxy-safe).
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
         AsyncClient(transport=transport, base_url="http://test") as client,
     ):
+        denied_page = await client.get("/ui")
+        assert denied_page.status_code == 401
+
         denied = await client.post(
             "/ui/settings/channels/telegram/secret",
             data={"secret_name": "bot_token", "value": "should-fail"},
@@ -342,6 +368,8 @@ async def test_ui_login_cookie_required_for_mutation_when_auth_set(
         assert "." in session
 
         client.cookies.set("pb_ui_session", session)
+        dash = await client.get("/ui")
+        assert dash.status_code == 200
         saved = await client.post(
             "/ui/settings/harness-secret",
             data={"key": "jira.api_token", "value": "ATATT-test"},

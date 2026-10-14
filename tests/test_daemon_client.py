@@ -125,9 +125,18 @@ async def test_mutating_requires_token_when_configured(
     monkeypatch.setattr(config_mod, "_settings", None)
     application = create_app(db_path=tmp_path / "auth.db", secret_key="k")
     await application.state.engine.start()
-    transport = ASGITransport(app=application)
     try:
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Token configured → even loopback must present it (safe behind reverse proxies).
+        loopback = ASGITransport(app=application)
+        async with AsyncClient(transport=loopback, base_url="http://test") as client:
+            denied_local = await client.post(
+                "/v1/hooks",
+                json={"name": "local", "topic": "jira:issue.created", "exec": "echo 1"},
+            )
+            assert denied_local.status_code == 401
+
+        remote = ASGITransport(app=application, client=("203.0.113.10", 50000))
+        async with AsyncClient(transport=remote, base_url="http://test") as client:
             denied = await client.post(
                 "/v1/hooks",
                 json={"name": "x", "topic": "jira:issue.created", "exec": "echo 1"},
@@ -136,6 +145,34 @@ async def test_mutating_requires_token_when_configured(
             ok = await client.post(
                 "/v1/hooks",
                 headers={"X-PB-Token": "secret-token"},
+                json={"name": "x", "topic": "jira:issue.created", "exec": "echo 1"},
+            )
+            assert ok.status_code == 200
+    finally:
+        await application.state.engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_local_mode_rejects_non_local_host_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reset_settings: None
+) -> None:
+    """Unauthenticated local mode must reject DNS-rebinding Host values."""
+    monkeypatch.delenv("PB_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(config_mod, "_settings", None)
+    application = create_app(db_path=tmp_path / "rebind.db", secret_key="k")
+    await application.state.engine.start()
+    try:
+        loopback = ASGITransport(app=application)
+        async with AsyncClient(transport=loopback, base_url="http://evil.example") as client:
+            denied = await client.post(
+                "/v1/hooks",
+                json={"name": "x", "topic": "jira:issue.created", "exec": "echo 1"},
+            )
+            assert denied.status_code == 403
+
+        async with AsyncClient(transport=loopback, base_url="http://127.0.0.1") as client:
+            ok = await client.post(
+                "/v1/hooks",
                 json={"name": "x", "topic": "jira:issue.created", "exec": "echo 1"},
             )
             assert ok.status_code == 200

@@ -99,3 +99,56 @@ async def test_inject_event_invalid_source(daemon: DaemonHarness) -> None:
         json={"source": "unknown-platform", "payload": {}},
     )
     assert res.status_code == 422
+
+
+def test_assert_bind_auth_policy_allows_loopback_without_token() -> None:
+    from pboy.daemon.server import assert_bind_auth_policy, is_loopback_bind
+
+    assert is_loopback_bind("127.0.0.1")
+    assert is_loopback_bind("localhost")
+    assert is_loopback_bind("[::1]")
+    assert is_loopback_bind("127.0.1.1")
+    assert not is_loopback_bind("0.0.0.0")
+    assert not is_loopback_bind("::")
+    assert_bind_auth_policy("127.0.0.1", "")
+    assert_bind_auth_policy("::1", "")
+    assert_bind_auth_policy("[::1]", "")
+    assert_bind_auth_policy("127.0.1.1", "")
+
+
+def test_is_loopback_peer_fail_closed() -> None:
+    from pboy.daemon.auth import _is_loopback
+
+    assert _is_loopback("") is False
+    assert _is_loopback("127.0.0.1") is True
+    assert _is_loopback("127.0.1.1") is True
+    assert _is_loopback("203.0.113.10") is False
+
+
+def test_assert_bind_auth_policy_requires_token_for_wildcard() -> None:
+    from pboy.daemon.server import assert_bind_auth_policy
+
+    with pytest.raises(ValueError, match="PB_AUTH_TOKEN"):
+        assert_bind_auth_policy("0.0.0.0", "")
+    with pytest.raises(ValueError, match="PB_AUTH_TOKEN"):
+        assert_bind_auth_policy("::", "  ")
+    assert_bind_auth_policy("0.0.0.0", "secret")
+    assert_bind_auth_policy("192.168.1.10", "secret")
+
+
+def test_run_daemon_exits_when_wildcard_bind_lacks_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pboy.core.config as config_mod
+    from pboy.daemon import server as server_mod
+
+    monkeypatch.delenv("PB_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(config_mod, "_settings", None)
+
+    def _fail_uvicorn(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("uvicorn.run must not be called")
+
+    monkeypatch.setattr(server_mod.uvicorn, "run", _fail_uvicorn)
+    with pytest.raises(SystemExit) as excinfo:
+        server_mod.run_daemon(host="0.0.0.0", port=8080)
+    assert excinfo.value.code == 1
