@@ -28,7 +28,17 @@ jobs:
       - name: Check version matches tag
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(python -c "import pathlib,re; t=pathlib.Path('src/pboy/__init__.py').read_text(); print(re.search(r'__version__\s*=\s*[\"']([^\"']+)', t).group(1))")
+          PKG=$(python <<'PY'
+          import pathlib
+          import re
+
+          text = pathlib.Path("src/pboy/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r"""__version__\s*=\s*['\"]([^'\"]+)['\"]""", text)
+          if not match:
+              raise SystemExit("could not parse __version__")
+          print(match.group(1))
+          PY
+          )
           echo "tag=$TAG package=$PKG"
           test "$TAG" = "$PKG"
 
