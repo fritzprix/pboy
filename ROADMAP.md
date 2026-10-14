@@ -51,10 +51,11 @@ M5 Web UI
        │
 M6 Hardening (can start early in parallel)
   #15 CI workflow                ✅
-  #16 PyPI / uvx release         ← next
-  #17 security checklist
+  #16 PyPI / uvx release         ← in progress (CHANGELOG + release.yml; first tag → PyPI)
+  #17 security checklist         ← next after #16 publish
   #18 operator docs
 ```
+
 
 ## Verification gates (every issue)
 

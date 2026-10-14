@@ -38,3 +38,34 @@ jobs:
 
       - name: Operator smoke (daemon HTTP path)
         run: ./scripts/smoke_demo.sh
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: pip install build && python -m build
+
+      - name: Verify wheel metadata and UI assets
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          zf = zipfile.ZipFile(wheels[0])
+          names = zf.namelist()
+          assert any(n.endswith("ui/templates/dashboard.html") for n in names)
+          assert any(n.endswith("ui/static/htmx.min.js") for n in names)
+          meta = next(n for n in names if n.endswith("entry_points.txt"))
+          text = zf.read(meta).decode()
+          assert "pboy =" in text and "pb =" in text, text
+          print("ok", wheels[0].name)
+          PY

@@ -52,6 +52,16 @@ Jira는 wake-up 채널이 아닙니다. 설정 화면의 안내대로 Atlassian 
 
 ## 설치
 
+**실행만 (권장, PyPI 배포 후):**
+
+```bash
+uvx pboy --help
+uvx pboy ui
+# 특정 버전: uvx pboy@0.1.0 --help
+```
+
+**개발 / 로컬 소스:**
+
 ```bash
 uv sync --extra dev
 
@@ -59,6 +69,8 @@ uv sync --extra dev
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+PyPI: [pypi.org/project/pboy](https://pypi.org/project/pboy/) · 릴리스: [`docs/releasing.md`](docs/releasing.md)
 
 | 항목 | 기본 |
 |------|------|

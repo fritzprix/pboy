@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build
+        run: pip install build
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check version matches tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(python -c "import pathlib,re; t=pathlib.Path('src/pboy/__init__.py').read_text(); print(re.search(r'__version__\s*=\s*[\"']([^\"']+)', t).group(1))")
+          echo "tag=$TAG package=$PKG"
+          test "$TAG" = "$PKG"
+
+      - name: Verify wheel contains UI assets and console scripts
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert wheels, "no wheel in dist/"
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          assert any(n.endswith("ui/templates/dashboard.html") for n in names), names
+          assert any(n.endswith("ui/static/htmx.min.js") for n in names), names
+          assert any(n.endswith("entry_points.txt") for n in names), names
+          meta = next(n for n in names if n.endswith("entry_points.txt"))
+          text = zipfile.ZipFile(wheels[0]).read(meta).decode()
+          assert "pboy =" in text and "pb =" in text, text
+          print("wheel ok:", wheels[0].name)
+          PY
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pboy
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

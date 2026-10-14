@@ -4,7 +4,6 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pboy"
-version = "0.1.0"
 description = "Zero-Ops Agent Event Orchestrator & Dispatcher"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,6 +12,7 @@ authors = [
     { name = "fritzprix" },
 ]
 keywords = ["agent", "event-bus", "cloud-events", "jira", "confluence", "telegram", "slack", "zero-ops"]
+dynamic = ["version"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -57,6 +57,9 @@ pb = "pboy.cli.main:main"
 "Homepage" = "https://github.com/fritzprix/pboy"
 "Repository" = "https://github.com/fritzprix/pboy"
 "Bug Tracker" = "https://github.com/fritzprix/pboy/issues"
+
+[tool.hatch.version]
+path = "src/pboy/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pboy"]
