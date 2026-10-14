@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import stat
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from pboy.core.router import HookRouter
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate, HookUpdate
 from pboy.store.sqlite import SQLiteStore
+from tests.helpers import py_print
 
 
 def test_package_metadata() -> None:
@@ -230,8 +232,9 @@ async def test_secret_key_file_permissions(tmp_path: Path, monkeypatch: pytest.M
     try:
         key_path = cfg.secret_key_path
         assert key_path.exists()
-        mode = key_path.stat().st_mode & 0o777
-        assert mode == stat.S_IRUSR | stat.S_IWUSR
+        if os.name != "nt":
+            mode = key_path.stat().st_mode & 0o777
+            assert mode == stat.S_IRUSR | stat.S_IWUSR
         await store.put_secret("k", "v")
         assert await store.get_secret("k") == "v"
     finally:
@@ -270,7 +273,7 @@ async def test_engine_dispatches_harness(engine: Engine, sample_jira_payload: di
         HookCreate(
             name="echo-hook",
             topic="jira:issue.created",
-            exec="echo harness-ok",
+            exec=py_print("harness-ok"),
             timeout=30,
         )
     )
@@ -390,7 +393,7 @@ async def test_engine_concurrent_dispatch(engine: Engine, sample_jira_payload: d
         HookCreate(
             name="hook-alpha",
             topic="jira:issue.created",
-            exec="echo alpha",
+            exec=py_print("alpha"),
             timeout=10,
         )
     )
@@ -398,7 +401,7 @@ async def test_engine_concurrent_dispatch(engine: Engine, sample_jira_payload: d
         HookCreate(
             name="hook-beta",
             topic="jira:issue.created",
-            exec="echo beta",
+            exec=py_print("beta"),
             timeout=10,
         )
     )

@@ -15,6 +15,7 @@ from pboy.core.engine import Engine
 from pboy.daemon.app import create_app
 from pboy.models.hook import HookCreate
 from pboy.store.sqlite import SQLiteStore
+from tests.helpers import py_print
 
 
 @pytest_asyncio.fixture
@@ -35,7 +36,7 @@ async def test_fake_channel_pushes_into_engine(
         HookCreate(
             name="from-fake",
             topic="jira:issue.created",
-            exec="echo from-channel",
+            exec=py_print("from-channel"),
             timeout=30,
         )
     )
@@ -140,7 +141,7 @@ async def test_daemon_lifespan_starts_enabled_fake(
             HookCreate(
                 name="lifespan-hook",
                 topic="jira:issue.created",
-                exec="echo lifespan-ok",
+                exec=py_print("lifespan-ok"),
                 timeout=30,
             )
         )

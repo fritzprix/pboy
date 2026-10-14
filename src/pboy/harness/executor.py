@@ -16,6 +16,21 @@ from pboy.models.hook import Hook
 from pboy.store.base import StoreBase
 
 
+def _unwrap_win_token(token: str) -> str:
+    """Strip one layer of Windows-style double quotes kept by ``shlex.split(posix=False)``."""
+    if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+        return token[1:-1].replace('\\"', '"')
+    return token
+
+
+def _split_exec(command: str) -> list[str]:
+    """Tokenize ``hook.exec`` for ``create_subprocess_exec`` (POSIX + Windows)."""
+    if os.name == "nt":
+        # Keep backslash paths; shlex retains surrounding quotes — unwrap for execve-style spawn.
+        return [_unwrap_win_token(tok) for tok in shlex.split(command, posix=False)]
+    return shlex.split(command)
+
+
 async def _communicate(
     proc: asyncio.subprocess.Process,
     stdin_payload: bytes,
@@ -75,7 +90,7 @@ class HarnessExecutor:
         await self.store.record_execution(exec_data)
 
         try:
-            argv = shlex.split(hook.exec)
+            argv = _split_exec(hook.exec)
         except ValueError as exc:
             return await self._finish(
                 exec_data,

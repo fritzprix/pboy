@@ -15,6 +15,7 @@ from pboy.core.config import Settings
 from pboy.core.engine import Engine
 from pboy.models.hook import HookCreate
 from pboy.store.sqlite import SQLiteStore
+from tests.helpers import py_print
 
 
 @pytest_asyncio.fixture
@@ -39,7 +40,7 @@ async def test_handle_update_dispatches_hook(
         HookCreate(
             name="tg-echo",
             topic="telegram:message",
-            exec="echo tg-ok",
+            exec=py_print("tg-ok"),
             timeout=30,
         )
     )
@@ -119,7 +120,7 @@ async def test_poll_loop_emits_recorded_update(
         HookCreate(
             name="tg-poll",
             topic="telegram:message",
-            exec="echo polled",
+            exec=py_print("polled"),
             timeout=30,
         )
     )

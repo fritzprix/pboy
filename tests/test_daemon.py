@@ -13,6 +13,7 @@ from httpx import ASGITransport, AsyncClient
 
 from pboy.daemon.app import create_app
 from pboy.models.hook import HookCreate
+from tests.helpers import py_print
 
 
 @dataclass
@@ -53,7 +54,7 @@ async def test_inject_event_dispatches_hook(
         HookCreate(
             name="inject-echo",
             topic="jira:issue.created",
-            exec="echo inject-ok",
+            exec=py_print("inject-ok"),
             timeout=30,
         )
     )

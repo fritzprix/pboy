@@ -16,6 +16,7 @@ from pboy.core.config import Settings
 from pboy.core.engine import Engine
 from pboy.models.hook import HookCreate
 from pboy.store.sqlite import SQLiteStore
+from tests.helpers import py_print
 
 
 async def _noop_emit(*_a: Any, **_k: Any) -> None:
@@ -50,7 +51,7 @@ async def test_handle_envelope_dispatches_message(
         HookCreate(
             name="slack-echo",
             topic="slack:message",
-            exec="echo slack-ok",
+            exec=py_print("slack-ok"),
             timeout=30,
         )
     )

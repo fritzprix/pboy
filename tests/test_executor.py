@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Awaitable, Callable
 from unittest.mock import patch
 
 import pytest
 
-from pboy.harness.executor import HarnessExecutor
+from pboy.harness.executor import HarnessExecutor, _split_exec
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook
 from pboy.store.sqlite import SQLiteStore
+from tests.helpers import py_c, py_exit, py_print
+
+
+def test_split_exec_py_print_roundtrip() -> None:
+    argv = _split_exec(py_print("hello"))
+    assert argv[-2:] == ["-c", "print('hello')"]
+    assert argv[0]
 
 
 @pytest.fixture
@@ -105,7 +111,7 @@ async def test_executor_timeout_kills_process(tmp_store: SQLiteStore, dummy_even
     hook = Hook(
         name="timeout-hook",
         topic="test:event.created",
-        exec=f"{sys.executable} -c 'import time; time.sleep(5)'",
+        exec=py_c("import time; time.sleep(5)"),
         timeout=1,
     )
     result = await executor.run(hook, dummy_event)
@@ -135,7 +141,7 @@ def test_executor_echo_ignores_stdin_under_uvloop(
         hook = Hook(
             name="echo-stdin",
             topic="test:event.created",
-            exec="echo smoke-ok",
+            exec=py_print("smoke-ok"),
             timeout=10,
         )
         result = await executor.run(hook, dummy_event)
@@ -158,7 +164,7 @@ def test_executor_nonzero_exit_ignores_stdin_under_uvloop(
         hook = Hook(
             name="fail-stdin",
             topic="test:event.created",
-            exec="sh -c 'exit 42'",
+            exec=py_exit(42),
             timeout=10,
         )
         result = await executor.run(hook, dummy_event)
@@ -175,7 +181,7 @@ async def test_executor_passes_lease_token_in_env(tmp_store: SQLiteStore, dummy_
     hook = Hook(
         name="env-hook",
         topic="test:event.created",
-        exec=f"{sys.executable} -c 'import os; print(os.environ.get(\"PB_LEASE_TOKEN\"))'",
+        exec=py_c("import os; print(os.environ.get('PB_LEASE_TOKEN'))"),
         timeout=10,
     )
     result = await executor.run(hook, dummy_event, lease_token="test_lease_token_val_42")
@@ -201,10 +207,9 @@ async def test_executor_injects_daemon_url_only_when_configured(
     hook = Hook(
         name="daemon-env",
         topic="test:event.created",
-        exec=(
-            f"{sys.executable} -c "
-            "'import os; print(os.environ.get(\"PB_DAEMON_URL\",\"\")); "
-            "print(os.environ.get(\"PB_AUTH_TOKEN\",\"\"))'"
+        exec=py_c(
+            "import os; print(os.environ.get('PB_DAEMON_URL','')); "
+            "print(os.environ.get('PB_AUTH_TOKEN',''))"
         ),
         timeout=10,
     )

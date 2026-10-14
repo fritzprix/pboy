@@ -7,6 +7,7 @@ import pytest
 from pboy.core.engine import Engine
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook
+from tests.helpers import py_print
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ async def test_engine_dispatch_lease_denied(engine: Engine, test_event: CloudEve
     hook = Hook(
         name="saturated-hook",
         topic="test:action.triggered",
-        exec="echo saturated",
+        exec=py_print("saturated"),
         concurrency=1,
     )
     # Pre-acquire the single available concurrency slot
@@ -52,19 +53,19 @@ async def test_engine_dispatch_sequential(engine: Engine, test_event: CloudEvent
     hook_a = Hook(
         name="seq-hook-a",
         topic="test:action.triggered",
-        exec="echo seq-a",
+        exec=py_print("seq-a"),
         concurrency=1,
     )
     hook_b = Hook(
         name="seq-hook-b",
         topic="test:action.triggered",
-        exec="echo seq-b",
+        exec=py_print("seq-b"),
         concurrency=1,
     )
     hook_saturated = Hook(
         name="seq-hook-saturated",
         topic="test:action.triggered",
-        exec="echo seq-sat",
+        exec=py_print("seq-sat"),
         concurrency=1,
     )
 
