@@ -15,9 +15,19 @@ from pboy.store.sqlite import SQLiteStore
 
 
 @pytest.fixture
-def cli_runner() -> CliRunner:
-    """Fixture providing a Typer CLI runner."""
+def cli_runner(monkeypatch: pytest.MonkeyPatch) -> CliRunner:
+    """Typer CLI runner with color disabled (Rich ANSI breaks plain ``--flag`` asserts)."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
     return CliRunner()
+
+
+def strip_ansi(text: str) -> str:
+    """Remove VT100 color sequences from CLI help output."""
+    import re
+
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 @pytest_asyncio.fixture

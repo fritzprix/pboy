@@ -30,9 +30,11 @@ def test_package_metadata() -> None:
 
 def test_cli_help(cli_runner: CliRunner) -> None:
     """Verify CLI top-level and subcommands respond to --help."""
+    from tests.conftest import strip_ansi
+
     res = cli_runner.invoke(app, ["--help"])
     assert res.exit_code == 0
-    assert "Zero-Ops Agent Event Orchestrator" in res.output
+    assert "Zero-Ops Agent Event Orchestrator" in strip_ansi(res.output)
 
     for sub in ["daemon", "ui", "hook", "state", "event", "channel"]:
         sub_res = cli_runner.invoke(app, [sub, "--help"])

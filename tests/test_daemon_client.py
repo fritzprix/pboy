@@ -34,10 +34,6 @@ class DaemonHarness:
     app: FastAPI
 
 
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    return CliRunner()
-
 
 @pytest.fixture
 def reset_settings(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:

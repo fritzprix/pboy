@@ -1,209 +1,110 @@
 # Pageboy (`pboy` / `pb`)
 
-> Zero-Ops 에이전트 이벤트 오케스트레이터 & 디스패처 (**Alpha**)
+로컬에서 Telegram·Slack **wake-up**을 받아, 매칭된 훅(`exec`)을 실행하는 Zero-Ops 이벤트 오케스트레이터입니다. (**Alpha · [PyPI](https://pypi.org/project/pboy/)**)
 
-Telegram·Slack 등 **wake-up 채널** 이벤트를 CloudEvents v1.0으로 정규화하고, 매칭된 훅(`exec` 서브프로세스)을 로컬에서 실행합니다.  
-Jira/Confluence는 데몬 webhook이 아니라 **훅이 실행하는 프로그램이 REST로 다루는 작업면**입니다 ([`docs/architecture-channels.md`](docs/architecture-channels.md)).
+Jira/Confluence는 데몬 webhook이 아니라, 훅 프로그램이 REST로 다루는 작업면입니다. → [`docs/architecture-channels.md`](docs/architecture-channels.md)
 
-> **Alpha:** 코어 · 데몬 · Telegram/Slack wake-up · Telegram outbound · 로컬 `/ui` 대시보드(채널·비밀 폼)까지 동작합니다.  
-> 다음 로드맵은 packaging / security / ops docs (**M6**).
-
-## 현재 동작하는 것
-
-| 기능 | 상태 |
-|------|------|
-| `pboy hook` / `state` / `event` CLI | ✅ (`PB_DAEMON_URL` 있으면 데몬 HTTP) |
-| Engine: normalize → store → match → lease → subprocess | ✅ |
-| AES-256-GCM secret storage | ✅ |
-| `pboy daemon` + `/healthz` + `/v1/*` | ✅ |
-| Daemon auth (`PB_AUTH_TOKEN` / `X-PB-Token`) | ✅ |
-| `pboy event complete` (+ `--sync telegram`) | ✅ |
-| `pboy daemon --ui` / `pboy ui` | ✅ `/ui` 한눈에 · `/ui/settings` 채널·비밀 · `/ui/login` |
-| Telegram long-poll | ✅ UI 또는 store / env |
-| Slack Socket Mode | ✅ UI 또는 store / env (`bot_token` + `app_token`) |
-| `pboy channel list/enable/disable/set-secret` | ✅ |
-| Jira/Confluence ChannelAdapter | ⏸ deferred — agent REST instead |
-
-로드맵: [`ROADMAP.md`](ROADMAP.md) · [Issues](https://github.com/fritzprix/pboy/issues)
-
-## 빠른 시작 (UI 권장)
-
-채널 토큰은 **환경변수 없이** 브라우저에서 넣을 수 있습니다.
+## 설치 · 실행
 
 ```bash
-uv sync --extra dev
-
-pboy ui
-# 같음: pboy daemon --host 127.0.0.1 --port 8080 --ui
-# 토큰 없이 로컬만 쓸 때는 로그인 불필요
+uvx pboy ui
+# 또는: uvx pboy@0.1.0 ui
 ```
 
-브라우저:
+브라우저: [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui)
 
-1. [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui) — 훅 · 이벤트 · 실행 기록  
-2. [http://127.0.0.1:8080/ui/settings](http://127.0.0.1:8080/ui/settings) — Telegram / Slack 토큰 붙여넣기 · 채널 켜기  
-   - 단계 안내 · 공식 링크 · 입력란 tooltip 포함  
-   - 저장한 비밀값은 다시 보여 주지 않음 (`저장됨`만 표시)  
-3. 리버스 프록시·LAN·`--host 0.0.0.0` 사용 시 **반드시** `PB_AUTH_TOKEN` 설정 (토큰이 있으면 루프백 포함 전 클라이언트에 강제). UI는 [/ui/login](http://127.0.0.1:8080/ui/login)  
+로컬(`127.0.0.1`)만 쓸 때는 `PB_AUTH_TOKEN` 없이 바로 설정·저장할 수 있습니다.
 
-Jira는 wake-up 채널이 아닙니다. 설정 화면의 안내대로 Atlassian API 토큰을 **선택** 보관할 수 있고, 실제 호출은 훅 `exec` 프로그램이 합니다.
+| 경로 | 역할 |
+|------|------|
+| `/ui` | 훅 · 이벤트 · 실행 기록 |
+| `/ui/settings` | Telegram / Slack 토큰 · 채널 on/off |
+| `/ui/login` | `PB_AUTH_TOKEN`을 켠 경우 (리버스 프록시·LAN) |
 
-## 설치
+데이터 기본 위치: DB `~/.local/share/pboy/pboy.db` · 암호화 키 `~/.config/pboy/secret.key`
 
-**실행만 (권장, PyPI 배포 후):**
+## 첫 시나리오 (Telegram)
+
+1. [@BotFather](https://t.me/BotFather)에서 봇 토큰 발급  
+2. `/ui/settings` → Telegram 토큰 저장 → **Enable**  
+3. 훅 등록 (데몬이 떠 있는 터미널과 다른 셸):
+
+```bash
+export PB_DAEMON_URL=http://127.0.0.1:8080
+uvx pboy hook register \
+  --name tg-echo \
+  --topic 'telegram:message' \
+  --exec 'echo hello-from-pboy' \
+  --timeout 30
+```
+
+Windows에서 `echo`가 안 되면: `--exec 'cmd /c echo hello-from-pboy'`
+
+4. 텔레그램에서 봇에게 메시지 → `/ui`에 이벤트·실행 표시  
+5. (선택) 봇으로 답장:
+
+```bash
+uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
+```
+
+Slack은 Socket Mode용 **bot 토큰(`xoxb-`)** + **앱 토큰(`xapp-`, `connections:write`)** 둘 다 필요합니다. 자세한 절차: [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
+
+## 보안 (짧게)
+
+| 상황 | 할 일 |
+|------|------|
+| 기본 로컬만 | 토큰 불필요 |
+| `--host 0.0.0.0` / LAN / 리버스 프록시 | **`PB_AUTH_TOKEN` 필수** (설정 시 루프백 포함 전원 인증) |
+
+```bash
+export PB_AUTH_TOKEN=your-secret
+uvx pboy daemon --host 0.0.0.0 --port 8080 --ui
+# 로그인: http://127.0.0.1:8080/ui/login
+```
+
+CLI가 같은 데몬 DB를 쓰려면 `PB_DAEMON_URL=http://127.0.0.1:8080`을 맞추세요. 없으면 CLI가 **별도 로컬 DB**를 써서 split-brain이 납니다.
+
+## 자주 쓰는 명령
 
 ```bash
 uvx pboy --help
-uvx pboy ui
-# 특정 버전: uvx pboy@0.1.0 --help
+uvx pboy channel list
+uvx pboy hook register --name ... --topic 'telegram:message' --exec '...' --timeout 30
+uvx pboy event list
+uvx pboy event complete <id> --summary '...' --sync telegram
 ```
 
-**개발 / 로컬 소스:**
-
-```bash
-uv sync --extra dev
-
-# 또는
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-PyPI: [pypi.org/project/pboy](https://pypi.org/project/pboy/) · 릴리스: [`docs/releasing.md`](docs/releasing.md)
-
-| 항목 | 기본 |
-|------|------|
-| DB | `~/.local/share/pboy/pboy.db` |
-| 암호화 키 | `~/.config/pboy/secret.key` |
-
-환경변수는 **선택**입니다 (`PB_` prefix). 채널 토큰·enable은 UI/store가 우선 경로이고, env가 있으면 덮어쓸 수 있습니다.
+환경변수 (`PB_` prefix, 모두 선택):
 
 | 변수 | 용도 |
 |------|------|
-| `PB_AUTH_TOKEN` | 미설정=로컬(루프백+local Host)만. 설정 시 **모든** 클라이언트에 강제(프록시 안전). `--host 0.0.0.0` 기동 시 필수 |
-| `PB_DAEMON_URL` | CLI가 데몬 HTTP를 쓰게 함 (예: `http://127.0.0.1:8080`) |
-| `PB_TELEGRAM_BOT_TOKEN` / `PB_SLACK_*` | 채널 토큰 (UI `set-secret` 대신) |
-| `PB_CHANNELS_ENABLED` | 켜진 채널 목록 (UI enable 대신; 설정 시 store 갱신 제한) |
-| `PB_DATABASE_URL` / `PB_SECRET_KEY` | DB·암호화 키 경로 오버라이드 |
+| `PB_AUTH_TOKEN` | 원격·프록시·비루프백 바인드 인증 |
+| `PB_DAEMON_URL` | CLI → 데몬 HTTP |
+| `PB_TELEGRAM_BOT_TOKEN` / `PB_SLACK_*` | UI 대신 env로 채널 토큰 |
+| `PB_CHANNELS_ENABLED` | 켜진 채널 (설정 시 store enable과 충돌 주의) |
 
-채널·BotFather·Slack 앱 절차: [`src/pboy/channels/README.md`](src/pboy/channels/README.md)  
-UI 구조: [`src/pboy/ui/README.md`](src/pboy/ui/README.md)
-
-## 테스트
+## 개발자
 
 ```bash
-.venv/bin/pytest -q
-.venv/bin/pytest -m contract -v
-.venv/bin/ruff check src tests
-.venv/bin/mypy src
+git clone https://github.com/fritzprix/pboy.git
+cd pboy
+uv sync --extra dev
+uv run pboy ui
 
-# 데몬 HTTP 경로 smoke (기본 DB 미사용)
+uv run pytest -q
+uv run ruff check src tests
+uv run mypy src
 ./scripts/smoke_demo.sh
 ```
 
-스키마 migration은 없습니다. 로컬 DB 리셋:
+릴리스: [`docs/releasing.md`](docs/releasing.md) · 스킬 `release patch|minor|major`  
+로드맵: [`ROADMAP.md`](ROADMAP.md) · [Issues](https://github.com/fritzprix/pboy/issues)  
+UI/채널 상세: [`src/pboy/ui/README.md`](src/pboy/ui/README.md) · [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
 
-```bash
-rm -f ~/.local/share/pboy/pboy.db
-```
-
-## 데몬 + CLI (수동)
-
-CLI는 **`PB_DAEMON_URL`이 있을 때만** 데몬 HTTP를 쓰고, 없으면 별도 로컬 SQLite로 갑니다 (split-brain 주의).
-
-```bash
-export PB_AUTH_TOKEN=dev-secret
-export PB_DAEMON_URL=http://127.0.0.1:8080
-
-# 터미널 1
-pboy daemon --host 127.0.0.1 --port 8080 --ui
-
-# 터미널 2
-curl -sf "$PB_DAEMON_URL/healthz"
-
-pboy hook register \
-  --name echo-demo \
-  --topic 'jira:issue.created' \
-  --exec 'echo ok' \
-  --timeout 30
-
-curl -sX POST "$PB_DAEMON_URL/v1/events" \
-  -H 'content-type: application/json' \
-  -H "X-PB-Token: $PB_AUTH_TOKEN" \
-  -d '{
-    "source":"jira",
-    "dispatch":true,
-    "payload":{
-      "webhookEvent":"jira:issue_created",
-      "issue":{
-        "id":"1","key":"DEMO-1",
-        "fields":{
-          "summary":"demo",
-          "priority":{"name":"High"},
-          "project":{"key":"DEMO"},
-          "creator":{"accountId":"u1","displayName":"Demo"},
-          "labels":[]
-        }
-      }
-    }
-  }'
-
-pboy event list
-```
-
-## Telegram / Slack (CLI)
-
-UI 대신 CLI로도 동일하게 설정할 수 있습니다.
-
-```bash
-# Telegram
-pboy channel set-secret telegram --value '<BotFather token>'
-pboy channel enable telegram
-
-# Slack (둘 다 필요)
-pboy channel set-secret slack --secret-name bot_token --value 'xoxb-...'
-pboy channel set-secret slack --secret-name app_token --value 'xapp-...'
-pboy channel enable slack
-
-pboy daemon --host 127.0.0.1 --port 8080 --ui
-# LAN 노출 시: export PB_AUTH_TOKEN=... && pboy daemon --host 0.0.0.0 --port 8080 --ui
-
-export PB_DAEMON_URL=http://127.0.0.1:8080
-pboy hook register --name tg-echo --topic 'telegram:message' --exec 'echo hi' --timeout 30
-pboy channel list
-```
-
-완료 후 텔레그램 답장:
-
-```bash
-pboy event complete "$PB_EVENT_ID" --summary 'Resolved' --sync telegram
-pboy event get "$PB_EVENT_ID"
-```
-
-## 프로젝트 구조
-
-```
-pboy/
-├── src/pboy/
-│   ├── cli/         # Typer CLI
-│   ├── core/        # Normalizer, Router, Lease, Engine, filters
-│   ├── channels/    # Telegram long-poll, Slack Socket Mode, fake
-│   ├── daemon/      # FastAPI app + auth
-│   ├── store/       # SQLite + AES-GCM secrets
-│   ├── harness/     # Subprocess executor
-│   ├── outbound/    # Telegram completion sync
-│   ├── ui/          # Embedded dashboard + settings (HTMX/Jinja)
-│   └── models/      # CloudEvents / Hook / Execution
-├── docs/architecture-channels.md
-├── scripts/smoke_demo.sh
-├── tests/
-├── ROADMAP.md
-└── README.md
-```
-
-## 필터 문법
+### 필터
 
 지원: `.path.to.field == "value"` / `!=`  
-지원하지 않는 표현식은 **매칭하지 않습니다** (fail-closed).
+그 외 표현식은 fail-closed (매칭 안 함).
 
 ## License
 

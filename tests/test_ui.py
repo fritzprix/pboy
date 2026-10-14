@@ -200,15 +200,20 @@ async def test_ui_non_loopback_requires_token(
 
 
 def test_cli_ui_help(cli_runner: CliRunner) -> None:
+    from tests.conftest import strip_ansi
+
     res = cli_runner.invoke(app, ["ui", "--help"])
     assert res.exit_code == 0
-    assert "dashboard" in res.output.lower()
+    assert "dashboard" in strip_ansi(res.output).lower()
 
 
 def test_cli_daemon_ui_flag_help(cli_runner: CliRunner) -> None:
+    from tests.conftest import strip_ansi
+
     res = cli_runner.invoke(app, ["daemon", "--help"])
     assert res.exit_code == 0
-    assert "--ui" in res.output
+    plain = strip_ansi(res.output)
+    assert "--ui" in plain
 
 
 def test_cli_ui_invokes_run_daemon(
