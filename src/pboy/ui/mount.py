@@ -40,7 +40,8 @@ async def _channel_rows(
         secret_flags: dict[str, bool] = {}
         for field in guide["fields"]:
             full_key = f"{name}.{field['secret_name']}"
-            in_store = (await engine.store.get_secret(full_key)) is not None
+            stored_val = await engine.store.get_secret(full_key)
+            in_store = bool(stored_val and stored_val.strip())
             secret_flags[field["secret_name"]] = in_store or registry.env_covers_secret(
                 full_key
             )
@@ -133,7 +134,7 @@ def mount_ui(app: FastAPI) -> None:
     async def ui_set_channel_secret(
         name: str,
         request: Request,
-        value: str = Form(...),
+        value: str = Form(default=""),
         secret_name: str = Form(...),
     ) -> RedirectResponse:
         reg: ChannelRegistry = request.app.state.channel_registry

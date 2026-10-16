@@ -276,6 +276,8 @@ def create_app(
         response_model=SecretPutResponse,
     )
     async def put_secret(key: str, body: SecretPutRequest, request: Request) -> SecretPutResponse:
+        if not body.value.strip():
+            raise HTTPException(status_code=422, detail="Secret value must not be empty")
         eng: Engine = request.app.state.engine
         await eng.store.put_secret(key, body.value)
         return SecretPutResponse(key=key, stored=True)

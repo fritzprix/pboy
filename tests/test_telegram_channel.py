@@ -217,3 +217,80 @@ async def test_poll_backoff_on_error_then_recovers(
         assert await engine.store.list_events(limit=5)
     finally:
         await channel.stop()
+
+
+@pytest.mark.asyncio
+async def test_allowlist_blocks_unauthorized_update_and_skips_file_download(
+    engine: Engine,
+    sample_telegram_payload: dict,
+    tmp_path: Path,
+) -> None:
+    from pboy.channels.telegram import TELEGRAM_ALLOWLIST_SECRET_KEY, parse_allowlist
+
+    assert parse_allowlist(" 111 , -222 \n 333 ") == frozenset({"111", "-222", "333"})
+    assert parse_allowlist("") == frozenset()
+
+    # Configure allowlist in store that does NOT include sample chat (-1001) or user (991)
+    await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "999999999,-100555555")
+    settings = Settings(telegram_bot_token="test-token", data_dir=tmp_path)
+
+    get_file_called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal get_file_called
+        if "getFile" in request.url.path:
+            get_file_called = True
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    # Attach a photo to verify download is never even attempted for unauthorized sender
+    unauthorized_update = {
+        "update_id": 2001,
+        "message": {
+            **sample_telegram_payload["message"],
+            "photo": [
+                {"file_id": "unauth-photo-id", "file_unique_id": "u1", "width": 10, "height": 10}
+            ],
+        },
+    }
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        channel = TelegramChannel(
+            engine.process_event,
+            engine.store,
+            settings,
+            client=client,
+        )
+        dropped = await channel.handle_update(unauthorized_update)
+        assert dropped is None
+        assert get_file_called is False
+        assert await engine.store.list_events(limit=5) == []
+
+        # Allow by from.id (991) -> passes
+        await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "991")
+        allowed_from = await channel.handle_update(_update_from_sample(sample_telegram_payload, 2002))
+        assert allowed_from is not None
+
+        # Clear allowlist (empty string) -> reverts to allow-all
+        await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "")
+        allowed_after_clear = await channel.handle_update(
+            _update_from_sample(sample_telegram_payload, 2003)
+        )
+        assert allowed_after_clear is not None
+
+        # Allow by chat.id (-1001) via env override -> passes
+        settings_env = Settings(
+            telegram_bot_token="test-token",
+            telegram_allowlist="-1001",
+            data_dir=tmp_path,
+        )
+        channel_env = TelegramChannel(
+            engine.process_event,
+            engine.store,
+            settings_env,
+            client=client,
+        )
+        allowed_chat = await channel_env.handle_update(
+            _update_from_sample(sample_telegram_payload, 2004)
+        )
+        assert allowed_chat is not None
+

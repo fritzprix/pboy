@@ -52,6 +52,16 @@ pboy channel enable telegram
 
 Or use env: `PB_TELEGRAM_BOT_TOKEN` (overrides store when set).
 
+Optional **allowlist** (comma-separated `chat.id` or sender `from.id` — unset/empty allows all; when set, unauthorized updates are dropped before file download or event creation).
+Note: allowing a group `chat.id` permits **all members** in that chat; list individual `from.id` values if you only want specific senders. Pass `--value ''` (or save an empty field in `/ui/settings`) to clear the stored allowlist:
+
+```bash
+pboy channel set-secret telegram --secret-name allowlist --value '123456789,-100987654321'
+# clear allowlist (revert to allow all):
+pboy channel set-secret telegram --secret-name allowlist --value ''
+# or env: export PB_TELEGRAM_ALLOWLIST='123456789,-100987654321'
+```
+
 3. Start the daemon (same DB as the CLI):
 
 ```bash

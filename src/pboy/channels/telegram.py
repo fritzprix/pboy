@@ -21,9 +21,39 @@ from pboy.core.telegram_media import (
 from pboy.store.base import StoreBase
 
 TELEGRAM_SECRET_KEY = "telegram.bot_token"
+TELEGRAM_ALLOWLIST_SECRET_KEY = "telegram.allowlist"
 DEFAULT_API_BASE = "https://api.telegram.org"
 # Cap concurrent download+emit work so getUpdates stays responsive.
 _MAX_INFLIGHT_EMITS = 4
+
+
+def parse_allowlist(raw: str | None) -> frozenset[str]:
+    """Parse comma/whitespace-separated Telegram chat/user IDs into a set of strings."""
+    if not raw:
+        return frozenset()
+    items: set[str] = set()
+    for part in raw.replace("\n", ",").split(","):
+        token = part.strip()
+        if token:
+            items.add(token)
+    return frozenset(items)
+
+
+def _extract_message_ids(message: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return ``(chat_id, from_id)`` as strings when present on a Telegram message dict."""
+    chat = message.get("chat")
+    sender = message.get("from")
+    chat_id = (
+        str(chat["id"])
+        if isinstance(chat, dict) and chat.get("id") is not None
+        else None
+    )
+    from_id = (
+        str(sender["id"])
+        if isinstance(sender, dict) and sender.get("id") is not None
+        else None
+    )
+    return chat_id, from_id
 
 
 class TelegramChannel:
@@ -74,6 +104,29 @@ class TelegramChannel:
             "Telegram bot token missing. Set PB_TELEGRAM_BOT_TOKEN or store secret "
             f"'{TELEGRAM_SECRET_KEY}' (see README / channels docs)."
         )
+
+    async def _resolve_allowlist(self) -> frozenset[str]:
+        """Resolve allowed chat/user IDs (non-empty env wins over store; empty = allow all)."""
+        env_raw = self._settings.telegram_allowlist.strip()
+        if env_raw:
+            return parse_allowlist(env_raw)
+        stored = await self._store.get_secret(TELEGRAM_ALLOWLIST_SECRET_KEY)
+        return parse_allowlist(stored)
+
+    async def _is_allowed(self, message: dict[str, Any], update_id: int | None) -> bool:
+        allowlist = await self._resolve_allowlist()
+        if not allowlist:
+            return True
+        chat_id, from_id = _extract_message_ids(message)
+        if (chat_id and chat_id in allowlist) or (from_id and from_id in allowlist):
+            return True
+        logger.warning(
+            "channel.telegram drop update_id={} chat_id={} from_id={} (not in allowlist)",
+            update_id,
+            chat_id,
+            from_id,
+        )
+        return False
 
     async def start(self) -> None:
         if self._started:
@@ -256,15 +309,20 @@ class TelegramChannel:
             return None
 
         # Prefer message-shaped payload for the existing normalizer.
-        payload: dict[str, Any]
+        raw_msg: Any
         if "message" in update:
-            payload = {"message": update["message"]}
+            raw_msg = update["message"]
         elif "edited_message" in update:
-            payload = {"message": update["edited_message"]}
+            raw_msg = update["edited_message"]
         else:
-            payload = {"message": update["channel_post"]}
+            raw_msg = update["channel_post"]
 
         uid = update_id if isinstance(update_id, int) else None
+        msg_dict = raw_msg if isinstance(raw_msg, dict) else {}
+        if not await self._is_allowed(msg_dict, uid):
+            return None
+
+        payload: dict[str, Any] = {"message": raw_msg}
         if background:
             # Download + emit off the poll loop (bounded by ``_emit_sem``).
             self._schedule_process(payload, uid, dispatch=dispatch)
@@ -314,8 +372,10 @@ def build_telegram_channel(
 
 __all__ = [
     "DEFAULT_API_BASE",
+    "TELEGRAM_ALLOWLIST_SECRET_KEY",
     "TELEGRAM_SECRET_KEY",
     "TelegramChannel",
     "build_telegram_channel",
+    "parse_allowlist",
     "redact_secret",
 ]

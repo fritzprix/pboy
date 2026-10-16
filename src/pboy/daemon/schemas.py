@@ -123,7 +123,7 @@ class ChannelMutationResponse(BaseModel):
 
 
 class SecretPutRequest(BaseModel):
-    value: str = Field(min_length=1)
+    value: str = ""
     secret_name: str | None = None
 
 

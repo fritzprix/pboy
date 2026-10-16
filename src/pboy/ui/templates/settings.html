@@ -65,7 +65,7 @@
         type="password"
         name="value"
         autocomplete="off"
-        required
+        {% if not field.optional %}required{% endif %}
         placeholder="{{ field.placeholder }}"
         title="{{ field.tooltip }}"
       />
