@@ -113,6 +113,27 @@ async def test_daemon_channel_api_set_secret_and_list(
         assert by_name["fake"]["running"] is True
         assert by_name["telegram"]["has_secret"] is True
 
+        put_allow = await client.put(
+            "/v1/channels/telegram/secret",
+            json={"value": "123456,-100999", "secret_name": "allowlist"},
+        )
+        assert put_allow.status_code == 200
+        assert put_allow.json()["key"] == "telegram.allowlist"
+
+        clear_allow = await client.put(
+            "/v1/channels/telegram/secret",
+            json={"value": "", "secret_name": "allowlist"},
+        )
+        assert clear_allow.status_code == 200
+        assert clear_allow.json()["key"] == "telegram.allowlist"
+
+        # Required secret still rejects empty value
+        empty_req = await client.put(
+            "/v1/channels/telegram/secret",
+            json={"value": "   ", "secret_name": "bot_token"},
+        )
+        assert empty_req.status_code == 400
+
         dis = await client.post("/v1/channels/fake/disable")
         assert dis.status_code == 200
         assert dis.json()["running"] is False

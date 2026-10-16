@@ -217,3 +217,147 @@ async def test_poll_backoff_on_error_then_recovers(
         assert await engine.store.list_events(limit=5)
     finally:
         await channel.stop()
+
+
+@pytest.mark.asyncio
+async def test_allowlist_blocks_unauthorized_update_and_skips_file_download(
+    engine: Engine,
+    sample_telegram_payload: dict,
+    tmp_path: Path,
+) -> None:
+    from pboy.channels.telegram import TELEGRAM_ALLOWLIST_SECRET_KEY, parse_allowlist
+
+    assert parse_allowlist(" 111 , -222 \n 333 ") == frozenset({"111", "-222", "333"})
+    assert parse_allowlist("") == frozenset()
+
+    # Configure allowlist in store that does NOT include sample chat (-1001) or user (991)
+    await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "999999999,-100555555")
+    settings = Settings(telegram_bot_token="test-token", data_dir=tmp_path)
+
+    get_file_called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal get_file_called
+        if "getFile" in request.url.path:
+            get_file_called = True
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    # Attach a photo to verify download is never even attempted for unauthorized sender
+    unauthorized_update = {
+        "update_id": 2001,
+        "message": {
+            **sample_telegram_payload["message"],
+            "photo": [
+                {"file_id": "unauth-photo-id", "file_unique_id": "u1", "width": 10, "height": 10}
+            ],
+        },
+    }
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        channel = TelegramChannel(
+            engine.process_event,
+            engine.store,
+            settings,
+            client=client,
+        )
+        dropped = await channel.handle_update(unauthorized_update)
+        assert dropped is None
+        assert get_file_called is False
+        assert await engine.store.list_events(limit=5) == []
+
+        # Allow by from.id (991) -> passes
+        await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "991")
+        allowed_from = await channel.handle_update(_update_from_sample(sample_telegram_payload, 2002))
+        assert allowed_from is not None
+
+        # Clear allowlist (empty string) -> reverts to allow-all
+        await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "")
+        allowed_after_clear = await channel.handle_update(
+            _update_from_sample(sample_telegram_payload, 2003)
+        )
+        assert allowed_after_clear is not None
+
+        # Allow by chat.id (-1001) via env override -> passes
+        settings_env = Settings(
+            telegram_bot_token="test-token",
+            telegram_allowlist="-1001",
+            data_dir=tmp_path,
+        )
+        channel_env = TelegramChannel(
+            engine.process_event,
+            engine.store,
+            settings_env,
+            client=client,
+        )
+        allowed_chat = await channel_env.handle_update(
+            _update_from_sample(sample_telegram_payload, 2004)
+        )
+        assert allowed_chat is not None
+
+
+@pytest.mark.asyncio
+async def test_telegram_pairing_code_flow(
+    engine: Engine,
+    sample_telegram_payload: dict,
+    tmp_path: Path,
+) -> None:
+    import json
+    import re
+
+    from pboy.channels.telegram import TELEGRAM_ALLOWLIST_SECRET_KEY
+
+    settings = Settings(telegram_bot_token="pair-token", data_dir=tmp_path)
+    sent_messages: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sendMessage"):
+            sent_messages.append(json.loads(request.content.decode("utf-8")))
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+        return httpx.Response(200, json={"ok": True, "result": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        channel = TelegramChannel(
+            engine.process_event,
+            engine.store,
+            settings,
+            client=client,
+        )
+        # 1. Start pairing when no prior chat is known -> waiting mode
+        info = await channel.start_pairing()
+        assert info["pairing_active"] is True
+        assert info["sent_immediately"] is False
+
+        # 2. User messages "/start" in Telegram -> bot replies with 6-digit code, event not dispatched
+        start_update = {
+            "update_id": 3001,
+            "message": {
+                **sample_telegram_payload["message"],
+                "text": "/start",
+            },
+        }
+        res = await channel.handle_update(start_update)
+        assert res is None
+        assert len(sent_messages) == 1
+        assert sent_messages[0]["chat_id"] == "-1001"
+        m = re.search(r"(\d{6})", sent_messages[0]["text"])
+        assert m is not None
+        code = m.group(1)
+
+        # 3. Wrong code rejected
+        with pytest.raises(ValueError, match="유효하지 않거나"):
+            await channel.verify_pairing_code("000000")
+
+        # 4. Verify valid code -> stores chat_id and from_id in telegram.allowlist
+        ids = await channel.verify_pairing_code(code)
+        assert "-1001" in ids
+        assert "991" in ids
+        assert channel.pairing_active is False
+        stored = await engine.store.get_secret(TELEGRAM_ALLOWLIST_SECRET_KEY)
+        assert stored == "-1001,991"
+
+        # 5. Subsequent start_pairing when last_seen_peer is known sends code immediately
+        info2 = await channel.start_pairing()
+        assert info2["sent_immediately"] is True
+        assert len(sent_messages) == 2
+
+

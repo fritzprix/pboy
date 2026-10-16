@@ -14,6 +14,11 @@ CHANNEL_SECRET_KEYS: dict[str, tuple[str, ...]] = {
     "slack": ("slack.bot_token", "slack.app_token"),
 }
 
+# channel name → optional encrypted store secret keys (e.g. allowlists)
+CHANNEL_OPTIONAL_SECRET_KEYS: dict[str, tuple[str, ...]] = {
+    "telegram": ("telegram.allowlist",),
+}
+
 
 def parse_enabled_names(raw: str | None) -> list[str]:
     """Parse a comma-separated enable list into unique lowercase names."""
@@ -54,28 +59,39 @@ def secret_keys_for_channel(name: str) -> tuple[str, ...]:
     return CHANNEL_SECRET_KEYS.get(name.strip().lower(), ())
 
 
+def optional_secret_keys_for_channel(name: str) -> tuple[str, ...]:
+    return CHANNEL_OPTIONAL_SECRET_KEYS.get(name.strip().lower(), ())
+
+
+def all_secret_keys_for_channel(name: str) -> tuple[str, ...]:
+    key = name.strip().lower()
+    return CHANNEL_SECRET_KEYS.get(key, ()) + CHANNEL_OPTIONAL_SECRET_KEYS.get(key, ())
+
+
 def resolve_secret_key(channel: str, secret_name: str | None = None) -> str:
     """Resolve store key for ``pboy channel set-secret``.
 
-    Single-secret channels (telegram) omit ``secret_name``.
+    Single-secret channels (telegram) default to their primary key when ``secret_name``
+    is omitted, and also accept optional secret names (e.g. ``allowlist``).
     Multi-secret channels (slack) require ``bot_token`` / ``app_token`` (or full key).
     """
     key = channel.strip().lower()
-    keys = CHANNEL_SECRET_KEYS.get(key)
-    if not keys:
+    req_keys = CHANNEL_SECRET_KEYS.get(key)
+    all_keys = all_secret_keys_for_channel(key)
+    if not req_keys:
         raise ValueError(
             f"Channel '{key}' has no secret mapping. Supported: {', '.join(sorted(CHANNEL_SECRET_KEYS))}"
         )
     if secret_name and secret_name.strip():
         sn = secret_name.strip().lower()
         full = sn if "." in sn else f"{key}.{sn}"
-        if full not in keys:
-            short = ", ".join(k.split(".", 1)[-1] for k in keys)
+        if full not in all_keys:
+            short = ", ".join(k.split(".", 1)[-1] for k in all_keys)
             raise ValueError(f"Unknown secret '{secret_name}' for '{key}'. Use one of: {short}")
         return full
-    if len(keys) == 1:
-        return keys[0]
-    short = ", ".join(k.split(".", 1)[-1] for k in keys)
+    if len(req_keys) == 1:
+        return req_keys[0]
+    short = ", ".join(k.split(".", 1)[-1] for k in req_keys)
     raise ValueError(f"Channel '{key}' requires --secret-name ({short})")
 
 
@@ -91,10 +107,13 @@ def secret_key_for_channel(name: str) -> str | None:
 
 __all__ = [
     "CHANNELS_ENABLED_SECRET",
+    "CHANNEL_OPTIONAL_SECRET_KEYS",
     "CHANNEL_SECRET_KEYS",
+    "all_secret_keys_for_channel",
     "env_channels_enabled_override",
     "format_enabled_names",
     "load_enabled_from_store",
+    "optional_secret_keys_for_channel",
     "parse_enabled_names",
     "resolve_secret_key",
     "save_enabled_to_store",

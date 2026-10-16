@@ -40,10 +40,16 @@ async def _channel_rows(
         secret_flags: dict[str, bool] = {}
         for field in guide["fields"]:
             full_key = f"{name}.{field['secret_name']}"
-            in_store = (await engine.store.get_secret(full_key)) is not None
+            stored_val = await engine.store.get_secret(full_key)
+            in_store = bool(stored_val and stored_val.strip())
             secret_flags[field["secret_name"]] = in_store or registry.env_covers_secret(
                 full_key
             )
+
+        pairing_active = False
+        if name == "telegram":
+            adapter = registry.get("telegram")
+            pairing_active = bool(getattr(adapter, "pairing_active", False))
 
         rows.append(
             {
@@ -52,6 +58,7 @@ async def _channel_rows(
                 "running": bool(st.get("running")),
                 "has_secret": bool(st.get("has_secret")),
                 "secret_flags": secret_flags,
+                "pairing_active": pairing_active,
             }
         )
     return rows
@@ -133,7 +140,7 @@ def mount_ui(app: FastAPI) -> None:
     async def ui_set_channel_secret(
         name: str,
         request: Request,
-        value: str = Form(...),
+        value: str = Form(default=""),
         secret_name: str = Form(...),
     ) -> RedirectResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
@@ -146,6 +153,60 @@ def mount_ui(app: FastAPI) -> None:
             )
         return RedirectResponse(
             f"/ui/settings?saved={quote(f'{name}.{secret_name}')}",
+            status_code=303,
+        )
+
+    @app.post(
+        "/ui/settings/channels/telegram/pair-start",
+        include_in_schema=False,
+    )
+    async def ui_telegram_pair_start(request: Request) -> RedirectResponse:
+        from pboy.channels.telegram import TelegramChannel
+
+        reg: ChannelRegistry = request.app.state.channel_registry
+        adapter = reg.get("telegram")
+        if not isinstance(adapter, TelegramChannel) or not adapter.started:
+            return RedirectResponse(
+                f"/ui/settings?err={quote('먼저 봇 토큰을 저장하고 Telegram 채널을 켜 주세요.')}",
+                status_code=303,
+            )
+        info = await adapter.start_pairing()
+        msg = (
+            "telegram-pair-sent (대화방으로 코드를 보냈습니다)"
+            if info.get("sent_immediately")
+            else "telegram-pair-waiting (5분 안에 텔레그램 봇에게 아무 메시지나 보내면 코드가 답장됩니다)"
+        )
+        return RedirectResponse(
+            f"/ui/settings?saved={quote(msg)}",
+            status_code=303,
+        )
+
+    @app.post(
+        "/ui/settings/channels/telegram/pair-verify",
+        include_in_schema=False,
+    )
+    async def ui_telegram_pair_verify(
+        request: Request,
+        code: str = Form(...),
+    ) -> RedirectResponse:
+        from pboy.channels.telegram import TelegramChannel
+
+        reg: ChannelRegistry = request.app.state.channel_registry
+        adapter = reg.get("telegram")
+        if not isinstance(adapter, TelegramChannel):
+            return RedirectResponse(
+                f"/ui/settings?err={quote('Telegram 채널이 실행 중이 아닙니다.')}",
+                status_code=303,
+            )
+        try:
+            await adapter.verify_pairing_code(code)
+        except ValueError as exc:
+            return RedirectResponse(
+                f"/ui/settings?err={quote(str(exc))}",
+                status_code=303,
+            )
+        return RedirectResponse(
+            f"/ui/settings?saved={quote('telegram.allowlist (인증 코드로 대화방 등록 완료)')}",
             status_code=303,
         )
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Final, TypedDict
+from typing import Any, Final, NotRequired, TypedDict
 
 
 class GuideLink(TypedDict):
@@ -16,6 +16,7 @@ class GuideField(TypedDict):
     placeholder: str
     tooltip: str
     help: str
+    optional: NotRequired[bool]
 
 
 class ChannelGuide(TypedDict):
@@ -72,7 +73,22 @@ CHANNEL_GUIDES: Final[list[ChannelGuide]] = [
                     "숫자:영문 형태이며, 다른 사람에게 공유하면 안 됩니다."
                 ),
                 "help": "예: 7123456789:AAHh… (전체를 그대로 붙여넣기)",
-            }
+            },
+            {
+                "secret_name": "allowlist",
+                "label": "허용할 채팅·사용자 ID (선택 · Allowlist)",
+                "placeholder": "123456789, -100987654321",
+                "tooltip": (
+                    "여기에 숫자 ID를 쉼표(,)로 적어 저장하면, 해당 chat.id 또는 "
+                    "발신자 user id(from.id)에서 온 메시지만 처리하고 나머지는 무시합니다. "
+                    "주의: 그룹 chat.id(음수)를 허용하면 해당 채팅방의 모든 멤버가 허용됩니다."
+                ),
+                "help": (
+                    "비운 채로 저장하면 해제(전체 허용) · 쉼표로 구분 "
+                    "(주의: 그룹 chat.id 허용 시 그 방 전원 허용)"
+                ),
+                "optional": True,
+            },
         ],
     },
     {

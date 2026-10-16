@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # Telegram Bot API token (optional). Prefer store secret ``telegram.bot_token``;
     # env wins when both are set.
     telegram_bot_token: str = ""
+    # Optional comma-separated Telegram chat_id / user_id allowlist.
+    # Prefer store secret ``telegram.allowlist``; non-empty env wins.
+    telegram_allowlist: str = ""
     # When true, Telegram channel downloads inbound files before emit (size-capped).
     telegram_download_files: bool = True
 

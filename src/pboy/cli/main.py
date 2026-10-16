@@ -621,15 +621,24 @@ def channel_set_secret(
         str | None,
         typer.Option(
             "--secret-name",
-            help="For multi-secret channels (slack: bot_token | app_token)",
+            help="Secret sub-key (slack: bot_token | app_token; telegram: bot_token | allowlist)",
         ),
     ] = None,
 ) -> None:
-    """Store an encrypted channel secret (e.g. telegram bot token)."""
+    """Store an encrypted channel secret (e.g. telegram bot token; empty clears optional allowlist)."""
+    from pboy.channels.config import optional_secret_keys_for_channel, resolve_secret_key
+
+    try:
+        resolved_key = resolve_secret_key(name, secret_name)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    is_optional = resolved_key in optional_secret_keys_for_channel(name)
     secret_value = value
     if secret_value is None:
         secret_value = typer.prompt("Secret value", hide_input=True)
-    if not secret_value.strip():
+    if not secret_value.strip() and not is_optional:
         typer.echo("Secret value must not be empty.", err=True)
         raise typer.Exit(code=1)
 
@@ -645,15 +654,8 @@ def channel_set_secret(
         return
 
     async def _run(store: SQLiteStore) -> None:
-        from pboy.channels.config import resolve_secret_key
-
-        try:
-            secret_key = resolve_secret_key(name, secret_name)
-        except ValueError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(code=1) from exc
-        await store.put_secret(secret_key, secret_value.strip())
-        typer.echo(f"Stored secret '{secret_key}' for channel '{name.strip().lower()}'.")
+        await store.put_secret(resolved_key, secret_value.strip())
+        typer.echo(f"Stored secret '{resolved_key}' for channel '{name.strip().lower()}'.")
 
     _run_with_store(_run)
 

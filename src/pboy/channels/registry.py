@@ -11,6 +11,7 @@ from pboy.channels.base import ChannelAdapter, EventEmitter
 from pboy.channels.config import (
     env_channels_enabled_override,
     load_enabled_from_store,
+    optional_secret_keys_for_channel,
     parse_enabled_names,
     resolve_secret_key,
     save_enabled_to_store,
@@ -169,6 +170,8 @@ class ChannelRegistry:
         """True when the matching ``PB_*`` env already supplies this secret."""
         if secret_key == "telegram.bot_token":
             return bool(self._settings.telegram_bot_token.strip())
+        if secret_key == "telegram.allowlist":
+            return bool(self._settings.telegram_allowlist.strip())
         if secret_key == "slack.bot_token":
             return bool(self._settings.slack_bot_token.strip())
         if secret_key == "slack.app_token":
@@ -182,11 +185,16 @@ class ChannelRegistry:
         *,
         secret_name: str | None = None,
     ) -> str:
-        """Store the channel token/secret; returns the secret key used."""
-        if not value.strip():
-            raise ValueError("Secret value must not be empty")
+        """Store the channel token/secret; returns the secret key used.
+
+        Optional secrets (e.g. ``telegram.allowlist``) accept an empty string to
+        clear the stored value; required secrets must be non-empty.
+        """
         secret_key = resolve_secret_key(name, secret_name)
-        await self._store.put_secret(secret_key, value.strip())
+        cleaned = value.strip()
+        if not cleaned and secret_key not in optional_secret_keys_for_channel(name):
+            raise ValueError("Secret value must not be empty")
+        await self._store.put_secret(secret_key, cleaned)
         return secret_key
 
     async def list_status(self) -> list[dict[str, Any]]:

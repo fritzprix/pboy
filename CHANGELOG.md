@@ -43,6 +43,9 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   `argv` in stderr; `GET /v1/events/{id}` and `event_detail` include `executions`
   (stdout/stderr; newest 100, with `executions_truncated` when capped);
   `pboy event get --verbose` prints those streams (omitted by default).
+- Telegram inbound allowlist (#35): optional `telegram.allowlist` secret /
+  `PB_TELEGRAM_ALLOWLIST` env (comma-separated `chat.id` or `from.id`) drops
+  unauthorized updates before attachment download or event emission.
 
 ### Fixed
 
