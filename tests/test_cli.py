@@ -99,7 +99,9 @@ def test_cli_hook_lifecycle(cli_runner: CliRunner, cli_db: Path) -> None:
 
 
 def test_cli_state_put_and_get(cli_runner: CliRunner, cli_db: Path) -> None:
-    """Verify state put updates state and state get retrieves or reports missing."""
+    """Verify state put updates state and state get retrieves JSON or reports missing."""
+    import json
+
     # Get non-existent state
     res_get_missing = cli_runner.invoke(app, ["state", "get", "evt_nonexistent"])
     assert res_get_missing.exit_code == 0
@@ -122,11 +124,68 @@ def test_cli_state_put_and_get(cli_runner: CliRunner, cli_db: Path) -> None:
     assert res_put.exit_code == 0
     assert "State updated for event 'evt_001': status=running, progress=75%" in res_put.output
 
-    # Get existing state
+    # Get existing state (valid JSON)
     res_get = cli_runner.invoke(app, ["state", "get", "evt_001"])
     assert res_get.exit_code == 0
-    assert "'status': 'running'" in res_get.output
-    assert "'progress': 75" in res_get.output
+    parsed = json.loads(res_get.output)
+    assert parsed["status"] == "running"
+    assert parsed["progress"] == 75
+
+
+def test_cli_pb_event_id_env_fallback_and_inject_and_status(
+    cli_runner: CliRunner, cli_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify event inject, status, and PB_EVENT_ID fallback for state put/get, event get/complete."""
+    import json
+
+    # 1. pboy status in local SQLite mode
+    status_res = cli_runner.invoke(app, ["status"])
+    assert status_res.exit_code == 0, status_res.output
+    status_json = json.loads(status_res.output)
+    assert status_json["mode"] == "local_sqlite"
+    assert "cli_test.db" in status_json["db_path"]
+
+    # 2. pboy event inject
+    inject_res = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "inject",
+            "--source",
+            "telegram",
+            "--payload",
+            '{"message":{"message_id":7,"chat":{"id":100},"from":{"id":200,"username":"bob"},"text":"hello"}}',
+            "--no-dispatch",
+        ],
+    )
+    assert inject_res.exit_code == 0, inject_res.output
+    injected = json.loads(inject_res.output)
+    event_id = injected["event_id"]
+    assert injected["source"] == "telegram"
+    assert injected["type"] == "com.telegram.message.received"
+
+    # 3. Missing event_id without PB_EVENT_ID fails with exit code 1
+    monkeypatch.delenv("PB_EVENT_ID", raising=False)
+    missing_id_res = cli_runner.invoke(app, ["state", "put", "--status", "running"])
+    assert missing_id_res.exit_code == 1
+    assert "PB_EVENT_ID" in missing_id_res.output
+
+    # 4. With PB_EVENT_ID set, state put / state get / event get / event complete work without explicit ID
+    monkeypatch.setenv("PB_EVENT_ID", event_id)
+    put_env = cli_runner.invoke(app, ["state", "put", "--status", "running", "--progress", "40"])
+    assert put_env.exit_code == 0, put_env.output
+
+    get_state_env = cli_runner.invoke(app, ["state", "get"])
+    assert get_state_env.exit_code == 0, get_state_env.output
+    assert json.loads(get_state_env.output)["progress"] == 40
+
+    get_evt_env = cli_runner.invoke(app, ["event", "get"])
+    assert get_evt_env.exit_code == 0, get_evt_env.output
+    assert json.loads(get_evt_env.output)["id"] == event_id
+
+    complete_env = cli_runner.invoke(app, ["event", "complete", "--summary", "Auto-ID done"])
+    assert complete_env.exit_code == 0, complete_env.output
+    assert "Auto-ID done" in complete_env.output
 
 
 def test_cli_event_list_and_get(cli_runner: CliRunner, cli_db: Path) -> None:

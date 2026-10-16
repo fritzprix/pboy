@@ -16,7 +16,7 @@
 1. EventRouter 가 Hook 매칭 → executor.spawn()
 2. subprocess.Popen(stdin=PIPE, stdout=PIPE, stderr=PIPE)
 3. CloudEvents JSON → stdin 주입
-4. env 주입: PB_EVENT_ID, PB_SOURCE, PB_HOOK_NAME, PB_DAEMON_URL, PB_LEASE_TOKEN
+4. env 주입: PB_EVENT_ID, PB_SOURCE, PB_HOOK_NAME, PB_LEASE_TOKEN
 5. 하네스 실행 (Python, Rust, Shell, Node 등)
 6. watchdog 타임아웃 모니터링
 7. 종료 시: exit_code, stdout/stderr 로깅, execution record 저장
@@ -30,7 +30,6 @@
 | `PB_EVENT_ID` | 이벤트 고유 ID |
 | `PB_SOURCE` | 원천 플랫폼 (`jira`, `confluence`, `slack`, `telegram`) |
 | `PB_HOOK_NAME` | 매칭된 훅 명칭 |
-| `PB_DAEMON_URL` | 로컬 데몬 (`http://127.0.0.1:8080`) |
 | `PB_LEASE_TOKEN` | 세션 전용 임시 토큰 |
 
 ## 하네스 표준 레퍼런스

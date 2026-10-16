@@ -10,11 +10,34 @@ import httpx
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
+DEFAULT_DAEMON_URL = "http://127.0.0.1:8080"
 
-def resolve_daemon_url() -> str | None:
-    """Return PB_DAEMON_URL when explicitly set; otherwise None (local SQLite mode)."""
-    raw = os.environ.get("PB_DAEMON_URL", "").strip()
-    return raw or None
+
+def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
+    """Return True if a Pageboy daemon is responding at ``url/healthz``."""
+    try:
+        res = httpx.get(f"{url.rstrip('/')}/healthz", timeout=timeout)
+        return res.status_code == 200 and res.json().get("service") == "pboy-daemon"
+    except Exception:
+        return False
+
+
+def resolve_daemon_url(
+    cli_url: str | None = None,
+    *,
+    auto_probe: bool = True,
+) -> str | None:
+    """Return explicit ``--daemon-url``, or auto-probe ``http://127.0.0.1:8080`` if running."""
+    if cli_url and cli_url.strip():
+        return cli_url.strip().rstrip("/")
+    if not auto_probe:
+        return None
+    # If an explicit PB_DATABASE_URL is set, the caller targets a specific local DB file.
+    if os.environ.get("PB_DATABASE_URL", "").strip():
+        return None
+    if _probe_daemon_alive(DEFAULT_DAEMON_URL):
+        return DEFAULT_DAEMON_URL
+    return None
 
 
 class DaemonClient:
@@ -173,6 +196,28 @@ class DaemonClient:
             "PUT",
             f"/v1/channels/{name}/secret",
             json=payload,
+        )
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def healthz(self) -> dict[str, Any]:
+        response = self._request("GET", "/healthz")
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def inject_event(
+        self,
+        source: str,
+        payload: dict[str, Any],
+        *,
+        dispatch: bool = True,
+    ) -> dict[str, Any]:
+        response = self._request(
+            "POST",
+            "/v1/events",
+            json={"source": source, "payload": payload, "dispatch": dispatch},
         )
         response.raise_for_status()
         body: dict[str, Any] = response.json()

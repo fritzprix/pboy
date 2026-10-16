@@ -9,7 +9,6 @@ import shlex
 
 from loguru import logger
 
-from pboy.core.config import get_settings
 from pboy.models.cloudevent import CloudEvent, current_iso_time
 from pboy.models.execution import ExecutionData, ExecutionStatus
 from pboy.models.hook import Hook
@@ -88,7 +87,6 @@ class HarnessExecutor:
         lease_token: str | None = None,
     ) -> ExecutionData:
         """Execute hook.exec, capture output, and persist an execution record."""
-        settings = get_settings()
         exec_data = ExecutionData(
             hook_name=hook.name,
             event_id=event.id,
@@ -123,9 +121,6 @@ class HarnessExecutor:
                 "PB_HOOK_NAME": hook.name,
             }
         )
-        # Only inject daemon URL when the daemon process configured one (non-empty).
-        if settings.daemon_url.strip():
-            env["PB_DAEMON_URL"] = settings.daemon_url.strip()
         if lease_token:
             env["PB_LEASE_TOKEN"] = lease_token
 

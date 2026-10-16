@@ -23,9 +23,6 @@ class Settings(BaseSettings):
     # Server
     host: str = "127.0.0.1"
     port: int = 8080
-    # Public URL harness/CLI use; empty means "no daemon" (do not inject into env).
-    # Daemon process overwrites this to the actual bind URL on start.
-    daemon_url: str = ""
 
     # Database
     database_url: str | None = None
