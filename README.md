@@ -1,32 +1,33 @@
 # Pageboy (`pboy` / `pb`)
 
-로컬에서 Telegram·Slack **wake-up**을 받아, 매칭된 훅(`exec`)을 실행하는 Zero-Ops 이벤트 오케스트레이터입니다. (**Alpha · [PyPI](https://pypi.org/project/pboy/)**)
+A Zero-Ops event orchestrator that accepts Telegram/Slack **wake-ups** locally and runs matching hooks (`exec`). (**Alpha · [PyPI](https://pypi.org/project/pboy/)**)
 
-Jira/Confluence는 데몬 webhook이 아니라, 훅 프로그램이 REST로 다루는 작업면입니다. → [`docs/architecture-channels.md`](docs/architecture-channels.md)
+Jira/Confluence are not daemon webhooks — hook programs talk to them over REST. → [`docs/architecture-channels.md`](docs/architecture-channels.md)
 
-## 설치 · 실행
+## Install · run
 
 ```bash
 uvx pboy ui
-# 또는: uvx pboy@0.1.0 ui
+# or: uvx pboy@0.1.0 ui
 ```
 
-브라우저: [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui)
+Browser: [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui)
 
-로그인 없음 — 이 머신(loopback)에서만 API·UI에 접근할 수 있습니다.
+No login — API and UI are reachable only from this machine (loopback).
 
-| 경로 | 역할 |
+| Path | Role |
 |------|------|
-| `/ui` | 훅 · 이벤트 · 실행 기록 |
-| `/ui/settings` | Telegram / Slack 토큰 · 채널 on/off |
+| `/ui` | Hooks · events · executions |
+| `/ui/settings` | Telegram / Slack tokens · channel on/off · Telegram allowlist pairing |
 
-데이터 기본 위치: DB `~/.local/share/pboy/pboy.db` · 암호화 키 `~/.config/pboy/secret.key`
+Default data locations: DB `~/.local/share/pboy/pboy.db` · encryption key `~/.config/pboy/secret.key`
 
-## 첫 시나리오 (Telegram)
+## First scenario (Telegram)
 
-1. [@BotFather](https://t.me/BotFather)에서 봇 토큰 발급  
-2. `/ui/settings` → Telegram 토큰 저장 → **Enable**  
-3. 훅 등록 (데몬이 떠 있는 터미널과 다른 셸):
+1. Create a bot token with [@BotFather](https://t.me/BotFather).
+2. In `/ui/settings`: paste the Telegram token → save → **Enable** → **pair your chat** with the 6-digit code (or fill the Allowlist field). Prefer this UI path over env vars.
+   An empty allowlist allows **any** chat that messages the bot — pair before attaching sensitive hooks.
+3. Register a hook (second shell while the daemon is up):
 
 ```bash
 export PB_DAEMON_URL=http://127.0.0.1:8080
@@ -37,50 +38,45 @@ uvx pboy hook register \
   --timeout 30
 ```
 
-Windows에서 `echo`가 안 되면: `--exec 'cmd /c echo hello-from-pboy'`
+On Windows, if `echo` fails: `--exec 'cmd /c echo hello-from-pboy'`
 
-4. 텔레그램에서 봇에게 메시지 → `/ui`에 이벤트·실행 표시  
-5. (선택) 봇으로 답장:
+4. Message the bot in Telegram → `/ui` shows the event and execution.
+5. (Optional) Reply via the bot:
 
 ```bash
 uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
 ```
 
-Slack은 Socket Mode용 **bot 토큰(`xoxb-`)** + **앱 토큰(`xapp-`, `connections:write`)** 둘 다 필요합니다. 자세한 절차: [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
+Slack needs both a **bot token (`xoxb-`)** and an **app token (`xapp-`, `connections:write`)** for Socket Mode. Full steps: [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
 
 ## Operator guide
 
-배포·재시작, happy-path 체크리스트, 채널/훅/`PB_DAEMON_URL` split-brain·403 트러블슈팅:
+Deploy/restart, happy-path checklist, channel/hook/`PB_DAEMON_URL` split-brain and 403 troubleshooting:
 [`docs/operator.md`](docs/operator.md)
 
-## 보안 (짧게)
+## Security (short)
 
-Pageboy는 **local-only**입니다. loopback 바인드만 허용하고, 모든 요청은 같은 머신 + 로컬 `Host`여야 합니다. LAN/`0.0.0.0`은 지원하지 않습니다. **리버스 프록시를 앞에 두지 마세요** (Host를 localhost로 바꾸면 원격 클라이언트가 로컬로 보입니다). 같은 머신의 다른 사용자·프로세스도 데몬에 닿을 수 있습니다.
+Pageboy is **local-only**. It binds loopback only; every request must come from the same machine with a local `Host`. LAN / `0.0.0.0` are not supported. **Do not put a reverse proxy in front** (rewriting `Host` to `localhost` makes remote clients look local). Other local users/processes on the same machine can also reach the daemon.
 
-운영 체크리스트 · Telegram SSRF 정책(고정 `api.telegram.org`, 사용자 제어 URL 없음) · 알려진 한계:
+Production checklist · Telegram SSRF policy (fixed `api.telegram.org`, no user-controlled URLs) · inbound allowlist · local API/execution disclosure · known limits:
 [`docs/security-contract.md`](docs/security-contract.md)
 
-CLI가 같은 데몬 DB를 쓰려면 `PB_DAEMON_URL=http://127.0.0.1:8080`을 맞추세요. 없으면 CLI가 **별도 로컬 DB**를 써서 split-brain이 납니다.
+Layman path needs **no environment variables** — configure channels in `/ui/settings`.  
+CLI / `PB_*` overrides (split-brain, tokens, paths): [`docs/operator.md`](docs/operator.md#environment-variables-pb-advanced).
 
-## 자주 쓰는 명령
+## Common commands
 
 ```bash
 uvx pboy --help
 uvx pboy channel list
 uvx pboy hook register --name ... --topic 'telegram:message' --exec '...' --timeout 30
 uvx pboy event list
+uvx pboy event get <id>            # omit execution stdout/stderr
+uvx pboy event get <id> --verbose  # include streams (local trust)
 uvx pboy event complete <id> --summary '...' --sync telegram
 ```
 
-환경변수 (`PB_` prefix, 모두 선택):
-
-| 변수 | 용도 |
-|------|------|
-| `PB_DAEMON_URL` | CLI → 데몬 HTTP |
-| `PB_TELEGRAM_BOT_TOKEN` / `PB_SLACK_*` | UI 대신 env로 채널 토큰 |
-| `PB_CHANNELS_ENABLED` | 켜진 채널 (설정 시 store enable과 충돌 주의) |
-
-## 개발자
+## Developers
 
 ```bash
 git clone https://github.com/fritzprix/pboy.git
@@ -94,15 +90,106 @@ uv run mypy src
 ./scripts/smoke_demo.sh
 ```
 
-운영: [`docs/operator.md`](docs/operator.md) · 보안: [`docs/security-contract.md`](docs/security-contract.md)  
-릴리스: [`docs/releasing.md`](docs/releasing.md) · 스킬 `release patch|minor|major`  
-로드맵: [`ROADMAP.md`](ROADMAP.md) · [Issues](https://github.com/fritzprix/pboy/issues)  
-UI/채널 상세: [`src/pboy/ui/README.md`](src/pboy/ui/README.md) · [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
+Ops / `PB_*` env: [`docs/operator.md`](docs/operator.md) · Security: [`docs/security-contract.md`](docs/security-contract.md)  
+Release: [`docs/releasing.md`](docs/releasing.md) · skill `release patch|minor|major`  
+Roadmap: [`ROADMAP.md`](ROADMAP.md) · [Issues](https://github.com/fritzprix/pboy/issues)  
+UI / channels: [`src/pboy/ui/README.md`](src/pboy/ui/README.md) · [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
 
-### 필터
+### Filters
 
-지원: `.path.to.field == "value"` / `!=`  
-그 외 표현식은 fail-closed (매칭 안 함).
+Supported: `.path.to.field == "value"` / `!=`  
+Other expressions are fail-closed (never match).
+
+## HTTP API (direct calls)
+
+OpenAPI is available while the daemon is running at `http://127.0.0.1:8080/docs` (`/openapi.json`).
+
+### 1. Event inject (`POST /v1/events`) — expected `payload` per `source`
+
+`POST /v1/events` normalizes platform fields into CloudEvent `data` (`summary`, `description`, `channel_id`, `entity_key`, `actor`, …) via `EventNormalizer`, based on `source` (`telegram` · `slack` · `jira` · `confluence` · `generic`). A `payload` shape that does not match `source` yields empty `data.summary` / `description`.
+
+- **Telegram** (`source: "telegram"`, topic `telegram:message`):
+  ```bash
+  curl -X POST http://127.0.0.1:8080/v1/events \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "source": "telegram",
+      "payload": {
+        "message": {
+          "message_id": 42,
+          "chat": {"id": 123456789},
+          "from": {"id": 987654321, "username": "alice"},
+          "text": "hello from curl"
+        }
+      }
+    }'
+  ```
+- **Slack** (`source: "slack"`, topic `slack:message`):
+  ```json
+  {
+    "source": "slack",
+    "payload": {
+      "event": {
+        "client_msg_id": "msg-1",
+        "channel": "C01234567",
+        "thread_ts": "1700000000.000100",
+        "user": "U01234567",
+        "text": "deploy status?"
+      }
+    }
+  }
+  ```
+- **Jira** (`source: "jira"`, topics `jira:issue.created` / `jira:issue.updated`):
+  ```json
+  {
+    "source": "jira",
+    "payload": {
+      "webhookEvent": "jira:issue_created",
+      "issue": {
+        "id": "10001",
+        "key": "PROJ-123",
+        "fields": {
+          "summary": "Login page 500 error",
+          "description": "Steps to reproduce...",
+          "priority": {"name": "High"},
+          "project": {"key": "PROJ"},
+          "creator": {"accountId": "acc-1", "displayName": "Alice"},
+          "labels": ["bug"]
+        }
+      }
+    }
+  }
+  ```
+- **Confluence** (`source: "confluence"`, topic `confluence:page.updated`):
+  ```json
+  {
+    "source": "confluence",
+    "payload": {
+      "page": {
+        "id": "98765",
+        "title": "Runbook",
+        "body": {"storage": {"value": "<p>Updated content</p>"}},
+        "version": {"number": 2}
+      },
+      "space": {"key": "ENG"},
+      "user": {"accountId": "acc-1", "displayName": "Alice"}
+    }
+  }
+  ```
+- **Generic** (`source: "generic"`): `{"type": "com.custom.event", "data": {...}}` (or an arbitrary JSON object stored as `data`).
+
+### 2. Event complete (`POST /v1/events/{event_id}/complete`) — `sync` type
+
+- The CLI (`pboy event complete <id> --sync telegram`) accepts a comma-separated string, but the **HTTP API `sync` field is a string array (`list[str]`)** (e.g. `["telegram"]`).
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/events/<event_id>/complete \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "summary": "Resolved",
+    "sync": ["telegram"]
+  }'
+```
 
 ## License
 

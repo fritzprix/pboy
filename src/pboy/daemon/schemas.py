@@ -14,9 +14,35 @@ EventSource = Literal["jira", "slack", "telegram", "confluence", "generic"]
 class EventInjectRequest(BaseModel):
     """Inject a raw platform payload into the Engine."""
 
-    source: EventSource
-    payload: dict[str, Any] = Field(default_factory=dict)
-    dispatch: bool = True
+    source: EventSource = Field(
+        description=(
+            "Inbound platform identifier (`telegram`, `slack`, `jira`, `confluence`, or `generic`). "
+            "Determines how `payload` is normalized into CloudEvent `data`."
+        ),
+        examples=["telegram"],
+    )
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Platform-specific raw event payload. See README for expected shape per `source` "
+            "(e.g. Telegram expects `{\"message\": {\"message_id\": 1, \"chat\": {\"id\": 123}, "
+            "\"from\": {\"id\": 456, \"username\": \"alice\"}, \"text\": \"hello\"}}`)."
+        ),
+        examples=[
+            {
+                "message": {
+                    "message_id": 42,
+                    "chat": {"id": 123456789},
+                    "from": {"id": 987654321, "username": "alice"},
+                    "text": "hello from curl",
+                }
+            }
+        ],
+    )
+    dispatch: bool = Field(
+        default=True,
+        description="Whether to match and execute registered hooks immediately.",
+    )
 
 
 class ExecutionSummary(BaseModel):
@@ -78,8 +104,20 @@ class HookDeleteResponse(BaseModel):
 
 
 class EventCompleteRequest(BaseModel):
-    summary: str = "Completed"
-    sync: list[str] = Field(default_factory=list)
+    summary: str = Field(
+        default="Completed",
+        description="Human-readable completion summary (sent as reply text/caption when `sync` is set).",
+        examples=["Resolved"],
+    )
+    sync: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Outbound targets to notify on completion as a JSON list of strings "
+            "(e.g. `[\"telegram\"]`). Note: the CLI `--sync` flag accepts a comma-separated "
+            "string, whereas the HTTP API requires `list[str]`."
+        ),
+        examples=[["telegram"]],
+    )
     # Explicit reply attachment (never auto-echoes inbound event attachments).
     file_path: str | None = None
     file_id: str | None = None

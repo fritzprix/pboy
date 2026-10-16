@@ -18,12 +18,13 @@ Do this once end-to-end before debugging anything else.
 
    Open [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui).
 
-2. **Enable Telegram** in `/ui/settings`: paste BotFather token → save → **Enable**.  
+2. **Enable Telegram** in `/ui/settings`: paste BotFather token → save → **Enable** → pair your chat (or set the **Allowlist**) so only authorized chats can trigger hooks.  
    Or CLI (same machine, after setting `PB_DAEMON_URL` — see below):
 
    ```bash
    export PB_DAEMON_URL=http://127.0.0.1:8080
    uvx pboy channel set-secret telegram --value '<bot-token>'
+   uvx pboy channel set-secret telegram --secret-name allowlist --value '<your-chat-or-user-id>'
    uvx pboy channel enable telegram
    uvx pboy channel list   # expect enabled + running while daemon is up
    ```
@@ -99,6 +100,28 @@ register there never reach the running daemon (**split-brain**).
 
 Harness subprocesses receive `PB_DAEMON_URL` when the daemon configured one, so
 `event complete` from inside a hook can hit the same API.
+
+### Environment variables (PB_*, advanced)
+
+**Layman / UI-only installs need none of these.** Configure tokens, allowlist (pairing),
+and channel enable in `/ui/settings`. The table below is for CLI operators, tests, and
+scripted installs. Prefer the store/UI; env is an override path.
+
+| Variable | When to use | Notes |
+|----------|-------------|-------|
+| `PB_DAEMON_URL` | CLI against a running daemon | Avoids split-brain. Only env most CLI users need. |
+| `PB_TELEGRAM_BOT_TOKEN` | Scripted token inject | Prefer UI/store. Non-empty env overrides store. |
+| `PB_TELEGRAM_ALLOWLIST` | Scripted allowlist | Prefer UI pairing/allowlist. Non-empty env overrides store. |
+| `PB_SLACK_BOT_TOKEN` / `PB_SLACK_APP_TOKEN` | Scripted Slack tokens | Prefer UI/store. |
+| `PB_CHANNELS_ENABLED` | Force enable list | If the variable is **present** (even `""`), it overrides store enable/disable. Easy to shoot yourself in the foot — leave unset for UI. |
+| `PB_DATABASE_URL` / `--db` | Isolated DB | Default: `~/.local/share/pboy/pboy.db`. |
+| `PB_SECRET_KEY` | Fixed key in tests/CI | Default: file at `~/.config/pboy/secret.key`. |
+| `PB_CONFIG_DIR` / `PB_DATA_DIR` | Custom paths | Defaults under `~/.config/pboy` and `~/.local/share/pboy`. |
+| `PB_HOST` / `PB_PORT` / `PB_LOG_LEVEL` | Bind / logging | Prefer `pboy ui` / `pboy daemon` flags when possible. |
+
+Harness-injected (not operator config — set by the daemon for hook subprocesses):
+`PB_EVENT_ID`, `PB_SOURCE`, `PB_HOOK_NAME`, and optionally `PB_DAEMON_URL` / `PB_LEASE_TOKEN`.
+See [`security-contract.md`](security-contract.md).
 
 ### Survive reboot (optional systemd user unit)
 
@@ -202,8 +225,9 @@ API (including creating hooks → command execution as the daemon OS user).
 
 | Doc | Audience |
 |-----|----------|
-| [`../README.md`](../README.md) | Quick start |
+| [`../README.md`](../README.md) | Quick start (UI-first; no env required) |
 | [`security-contract.md`](security-contract.md) | Local-only threat model |
 | [`architecture-channels.md`](architecture-channels.md) | Wake-up vs Jira agent REST |
 | [`../src/pboy/channels/README.md`](../src/pboy/channels/README.md) | Telegram / Slack setup detail |
 | [`releasing.md`](releasing.md) | Maintainers / PyPI |
+| This guide § [Environment variables](#environment-variables-pb-advanced) | Full `PB_*` reference |

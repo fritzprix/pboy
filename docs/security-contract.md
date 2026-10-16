@@ -83,7 +83,8 @@ Operator-facing checklist for a **local** Alpha install. There is **no**
 | Secret key | `~/.config/pboy/secret.key` is created mode `0600`. Do not chmod it world-readable; prefer not sharing the home directory. |
 | DB / files | Default DB `~/.local/share/pboy/pboy.db`; channel files under `…/files/`. Treat as sensitive (events, secrets ciphertext, attachments). |
 | Channel tokens | Store via UI/CLI/env; never commit tokens. Env overrides store when non-empty (see operator guide). |
-| Hooks | Only register `exec` you intend to run; harness runs as the daemon OS user with full local privileges of that account. |
+| Telegram allowlist | For any non-toy bot, set the allowlist in `/ui/settings` (6-digit pairing, or the allowlist field). When empty, **any** Telegram chat that messages the bot can trigger `telegram:message` hooks. Pair in a direct chat (in groups the pairing reply is visible to members; verification still needs local loopback). |
+| Hooks | Only register `exec` you intend to run; harness runs as the daemon OS user with full local privileges of that account. Do not inline secrets in `hook.exec` command strings (spawn failures surface `hook.exec` and `argv` in execution `stderr`). |
 | CLI split-brain | Set `PB_DAEMON_URL=http://127.0.0.1:<port>` whenever the daemon is up so CLI mutations hit the same DB. |
 | Health | `curl -s http://127.0.0.1:8080/healthz` from the same host only. |
 
@@ -111,7 +112,12 @@ allowlist”.
 - **No session cookies / no UI login** — the old “cookie not `Secure` on
   `http://127.0.0.1`” note is obsolete; there is nothing to mark `Secure`.
 - **Any local peer** that can open the loopback port has full API access
-  (read events, put secrets, create hooks).
+  (read events, put secrets, create hooks). `GET /v1/events/{id}` returns up to
+  100 execution records including `stdout`/`stderr` (and spawn failure diagnostics
+  include `hook.exec` + `argv`), so treat event/execution APIs as full local trust.
+- **Default Telegram inbound is open until allowlisted** — an empty
+  `telegram.allowlist` accepts messages from any chat/user. Always configure the
+  allowlist (or pair via `/ui/settings`) before attaching sensitive hooks.
 - **Harness = RCE as daemon user** by design once a hook is registered.
 - **Inbound/outbound file retention** under `data_dir/files/` is not pruned
   automatically (see issue #30).
