@@ -13,19 +13,19 @@ description: >-
 
 User says one of:
 
-- `release patch`
-- `release minor`
-- `release major`
+- `release patch` — release with patch version bumping (`X.Y.Z` → `X.Y.(Z+1)`)
+- `release minor` — release with minor version bumping (`X.Y.Z` → `X.(Y+1).0`)
+- `release major` — release with major version bumping (`X.Y.Z` → `(X+1).0.0`)
 
-Optional: dry-run / no-push — stop before `git push` / tag push.
+Optional: `--dry-run` / `no-push` — stop before `git push` / tag push.
 
 ## Bump policy (this repo)
 
-| Kind | Rule | Example |
-|------|------|---------|
-| `patch` | bug fix, docs, CI | `0.1.0` → `0.1.1` |
-| `minor` | feature **or** breaking change while on `0.x` | `0.1.0` → `0.2.0` |
-| `major` | leave Alpha / first stable (`0.x` → `1.0.0`) or post-1.0 breaking | `0.2.0` → `1.0.0` |
+| Command | Bump | Rule | Example |
+|---------|------|------|---------|
+| `release patch` | `patch` | bug fix, docs, CI | `0.1.0` → `0.1.1` |
+| `release minor` | `minor` | feature **or** breaking change while on `0.x` | `0.1.0` → `0.2.0` |
+| `release major` | `major` | leave Alpha / first stable (`0.x` → `1.0.0`) or post-1.0 breaking | `0.2.0` → `1.0.0` |
 
 On `major` from `0.x`, remind the user to consider bumping the Trove classifier in `pyproject.toml` away from Alpha (only if they intend to leave Alpha).
 
@@ -33,10 +33,13 @@ Source of truth: `src/pboy/__init__.py` → `__version__` (hatch dynamic). Proce
 
 ## Preconditions (fail fast)
 
-1. Repo root is `pboy`; branch `main`; working tree clean (or only intentional release edits).
-2. `main` is up to date with `origin/main`.
-3. Prefer CI green on latest `main` (`gh run list --branch main --limit 5`).
-4. GitHub Environment `pypi` exists; PyPI Trusted Publisher is active at
+1. Repo root is `pboy`; working tree clean (or only intentional release edits).
+2. Fetch remote refs (`git fetch origin`).
+3. Ensure `main` has the intended release commits:
+   - Check `git log origin/main..origin/dev/0.2.x --oneline` (or latest `dev/M.m.x` train). If the user is releasing work accumulated on `dev/M.m.x` that hasn't been merged into `main` yet, merge or fast-forward `origin/dev/M.m.x` into `main` (or confirm with the user) before cutting the release commit on `main`.
+4. Switch to `main` and ensure it is up to date with `origin/main`.
+5. Prefer CI green on latest `main` (`gh run list --branch main --limit 5`).
+6. GitHub Environment `pypi` exists; PyPI Trusted Publisher is active at
    https://pypi.org/manage/project/pboy/settings/publishing/
    (`fritzprix/pboy` + `release.yml` + environment `pypi`).
 
@@ -46,9 +49,10 @@ Copy and track:
 
 ```
 Release:
-- [ ] Bump version + CHANGELOG
+- [ ] Precheck branch (`main` synced with `origin/main` + intended `dev/M.m.x` train if applicable)
+- [ ] Bump version (`patch` | `minor` | `major`) + CHANGELOG
 - [ ] Fill changelog notes (no placeholder left)
-- [ ] Commit on main
+- [ ] Commit on main (`Release X.Y.Z.`)
 - [ ] Push main
 - [ ] Annotated tag vX.Y.Z + push tag
 - [ ] Watch Release workflow
