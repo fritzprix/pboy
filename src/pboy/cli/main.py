@@ -297,16 +297,38 @@ def event_list(
     _run_with_store(_run)
 
 
+def _echo_event_detail(detail: dict[str, Any], *, verbose: bool) -> None:
+    """Print event detail JSON; omit execution stdout/stderr unless ``verbose``."""
+    import json
+
+    payload = detail
+    if not verbose:
+        payload = dict(detail)
+        raw_execs = payload.get("executions")
+        if isinstance(raw_execs, list):
+            trimmed: list[Any] = []
+            for item in raw_execs:
+                if isinstance(item, dict):
+                    row = {k: v for k, v in item.items() if k not in ("stdout", "stderr")}
+                    trimmed.append(row)
+                else:
+                    trimmed.append(item)
+            payload["executions"] = trimmed
+    typer.echo(json.dumps(payload, indent=2))
+
+
 @event_app.command("get")
 def event_get(
     event_id: Annotated[str, typer.Argument(help="Event ID")],
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Include execution stdout/stderr"),
+    ] = False,
 ) -> None:
     """Inspect a CloudEvent by ID (includes completion / execution state).
 
     Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
     """
-    import json
-
     daemon_url = resolve_daemon_url()
     if daemon_url:
         try:
@@ -316,7 +338,7 @@ def event_get(
         if not detail:
             typer.echo(f"Event '{event_id}' not found.", err=True)
             raise typer.Exit(code=1)
-        typer.echo(json.dumps(detail, indent=2))
+        _echo_event_detail(detail, verbose=verbose)
         return
 
     async def _run(store: SQLiteStore) -> None:
@@ -327,7 +349,7 @@ def event_get(
         if not detail:
             typer.echo(f"Event '{event_id}' not found.", err=True)
             raise typer.Exit(code=1)
-        typer.echo(json.dumps(detail, indent=2))
+        _echo_event_detail(detail, verbose=verbose)
 
     _run_with_store(_run)
 

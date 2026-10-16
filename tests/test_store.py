@@ -164,6 +164,18 @@ async def test_store_pagination_events_and_executions(tmp_store: SQLiteStore) ->
     execs_page2 = await tmp_store.list_executions(limit=2, offset=2)
     assert len(execs_page2) == 1
 
+    await tmp_store.record_execution(
+        ExecutionData(
+            execution_id="ex_other",
+            hook_name="other",
+            event_id="evt_other",
+            status="failed",
+        )
+    )
+    filtered = await tmp_store.list_executions(limit=50, event_id="evt_test")
+    assert len(filtered) == 3
+    assert all(ex.event_id == "evt_test" for ex in filtered)
+
 
 @pytest.mark.asyncio
 async def test_store_get_state_corrupt_json_raises_value_error(tmp_store: SQLiteStore) -> None:

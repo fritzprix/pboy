@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 import pboy.core.config as config_mod
 from pboy.cli.main import app, main
 from pboy.models.cloudevent import CloudEvent
+from pboy.models.execution import ExecutionData
 from pboy.store.sqlite import SQLiteStore
 
 
@@ -25,7 +26,9 @@ def cli_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     cfg_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setenv("PB_DATABASE_URL", f"sqlite:////{db_file.resolve()}")
+    # ``sqlite:///`` + as_posix: Unix keeps a leading ``/`` (four-slash URL);
+    # Windows gets ``sqlite:///C:/...`` so Path is not ``\C:\...``.
+    monkeypatch.setenv("PB_DATABASE_URL", f"sqlite:///{db_file.resolve().as_posix()}")
     monkeypatch.setenv("PB_SECRET_KEY", "fixed_cli_test_secret_key_32bytes!")
     monkeypatch.setenv("PB_CONFIG_DIR", str(cfg_dir.resolve()))
     monkeypatch.setenv("PB_DATA_DIR", str(data_dir.resolve()))
@@ -166,6 +169,48 @@ def test_cli_event_list_and_get(cli_runner: CliRunner, cli_db: Path) -> None:
     assert res_get.exit_code == 0
     assert "evt_seed_100" in res_get.output
     assert '"specversion": "1.0"' in res_get.output
+    assert '"executions"' in res_get.output
+
+
+def test_cli_event_get_verbose_includes_stdout_stderr(cli_runner: CliRunner, cli_db: Path) -> None:
+    """Default get omits execution streams; --verbose includes them."""
+
+    async def _seed() -> None:
+        store = SQLiteStore()
+        await store.init_db()
+        try:
+            evt = CloudEvent(
+                id="evt_verbose_1",
+                source="jira",
+                type="com.atlassian.jira.issue.created",
+                data={"summary": "verbose"},
+            )
+            await store.create_event(evt)
+            await store.record_execution(
+                ExecutionData(
+                    hook_name="v-hook",
+                    event_id="evt_verbose_1",
+                    status="completed",
+                    exit_code=0,
+                    stdout="STREAM_OUT",
+                    stderr="STREAM_ERR",
+                )
+            )
+        finally:
+            await store.close()
+
+    asyncio.run(_seed())
+
+    quiet = cli_runner.invoke(app, ["event", "get", "evt_verbose_1"])
+    assert quiet.exit_code == 0
+    assert "v-hook" in quiet.output
+    assert "STREAM_OUT" not in quiet.output
+    assert "STREAM_ERR" not in quiet.output
+
+    verbose = cli_runner.invoke(app, ["event", "get", "evt_verbose_1", "--verbose"])
+    assert verbose.exit_code == 0
+    assert "STREAM_OUT" in verbose.output
+    assert "STREAM_ERR" in verbose.output
 
 
 def test_cli_main_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
