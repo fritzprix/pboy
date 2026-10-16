@@ -278,3 +278,24 @@ def test_run_daemon_exits_on_non_loopback_bind(
     with pytest.raises(SystemExit) as excinfo:
         server_mod.run_daemon(host="0.0.0.0", port=8080)
     assert excinfo.value.code == 1
+
+
+@pytest.mark.asyncio
+async def test_openapi_schema_documents_sync_and_inject_payload(
+    daemon: DaemonHarness,
+) -> None:
+    res = await daemon.client.get("/openapi.json")
+    assert res.status_code == 200
+    schemas = res.json()["components"]["schemas"]
+
+    complete_props = schemas["EventCompleteRequest"]["properties"]
+    sync_prop = complete_props["sync"]
+    assert sync_prop["type"] == "array"
+    assert sync_prop["items"] == {"type": "string"}
+    assert "description" in sync_prop
+    assert sync_prop["examples"] == [["telegram"]]
+
+    inject_props = schemas["EventInjectRequest"]["properties"]
+    payload_prop = inject_props["payload"]
+    assert "description" in payload_prop
+    assert payload_prop["examples"][0]["message"]["text"] == "hello from curl"
