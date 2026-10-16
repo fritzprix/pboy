@@ -65,7 +65,9 @@ async def test_executor_empty_argv(tmp_store: SQLiteStore, dummy_event: CloudEve
     result = await executor.run(hook, dummy_event)
     assert result.status == "failed"
     assert result.exit_code == 127
-    assert result.stderr == "Empty exec command"
+    assert result.stderr is not None
+    assert result.stderr.startswith("Empty exec command")
+    assert "exec=" in result.stderr
 
 
 @pytest.mark.asyncio
@@ -83,6 +85,9 @@ async def test_executor_command_not_found(tmp_store: SQLiteStore, dummy_event: C
     assert result.exit_code == 127
     assert result.stderr is not None
     assert "Command not found" in result.stderr
+    assert "nonexistent_binary_pboy_test_123456" in result.stderr
+    assert "exec=" in result.stderr
+    assert "argv=" in result.stderr
 
 
 @pytest.mark.asyncio
@@ -101,6 +106,8 @@ async def test_executor_oserror_on_spawn(tmp_store: SQLiteStore, dummy_event: Cl
         assert result.exit_code == 127
         assert result.stderr is not None
         assert "Failed to spawn: Exec format error" in result.stderr
+        assert "exec='echo test'" in result.stderr
+        assert "argv=" in result.stderr
 
 
 @pytest.mark.asyncio

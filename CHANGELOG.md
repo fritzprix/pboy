@@ -34,6 +34,10 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   `sendPhoto` / `sendDocument` / … (explicit only; does not echo inbound attachments).
   Daemon `file_path` is restricted to `data_dir/files`; CLI stages copies under
   `files/outbound/` when needed. Caption truncated to 1024; upload size capped.
+- Hook debug visibility (#27): spawn/parse failures include full `hook.exec` + parsed
+  `argv` in stderr; `GET /v1/events/{id}` and `event_detail` include `executions`
+  (stdout/stderr; newest 100, with `executions_truncated` when capped);
+  `pboy event get --verbose` prints those streams (omitted by default).
 
 ### Fixed
 

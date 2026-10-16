@@ -26,6 +26,10 @@ from pboy.outbound.telegram import TelegramOutbound
 from pboy.store.base import StoreBase
 from pboy.store.sqlite import SQLiteStore
 
+# Newest-first page size for ``event_detail`` / ``GET /v1/events/{id}``.
+# When more rows exist, ``executions_truncated`` is set True on the detail dict.
+EVENT_DETAIL_EXECUTION_LIMIT = 100
+
 
 class Engine:
     """Central orchestrator for Pageboy."""
@@ -266,14 +270,29 @@ class Engine:
         return results
 
     async def event_detail(self, event_id: str) -> dict[str, Any] | None:
-        """CloudEvent dump plus completion / execution state (for GET APIs)."""
+        """CloudEvent dump plus completion / execution records (for GET APIs).
+
+        Returns at most ``EVENT_DETAIL_EXECUTION_LIMIT`` executions (newest first).
+        If older rows were omitted, ``executions_truncated`` is ``True``.
+        """
         event = await self.store.get_event(event_id)
         if event is None:
             return None
         detail = event.model_dump()
         detail["completion"] = await self.store.get_state(event_id, COMPLETION_STATE_KEY)
         detail["execution_state"] = await self.store.get_state(event_id, EXECUTION_STATE_KEY)
+        rows = await self.store.list_executions(
+            limit=EVENT_DETAIL_EXECUTION_LIMIT + 1,
+            offset=0,
+            event_id=event_id,
+        )
+        truncated = len(rows) > EVENT_DETAIL_EXECUTION_LIMIT
+        if truncated:
+            rows = rows[:EVENT_DETAIL_EXECUTION_LIMIT]
+        detail["executions"] = [ex.model_dump() for ex in rows]
+        if truncated:
+            detail["executions_truncated"] = True
         return detail
 
 
-__all__ = ["Engine"]
+__all__ = ["EVENT_DETAIL_EXECUTION_LIMIT", "Engine"]

@@ -372,16 +372,31 @@ class SQLiteStore(StoreBase):
                 finished_at=row["finished_at"],
             )
 
-    async def list_executions(self, limit: int = 50, offset: int = 0) -> list[ExecutionData]:
+    async def list_executions(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        event_id: str | None = None,
+    ) -> list[ExecutionData]:
         if not self._db:
             raise RuntimeError("Database not initialized")
-        async with self._db.execute(
-            """
-            SELECT execution_id, hook_name, event_id, pid, status, exit_code, stdout, stderr, started_at, finished_at
-            FROM executions ORDER BY started_at DESC LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        ) as cursor:
+        if event_id is None:
+            query = """
+                SELECT execution_id, hook_name, event_id, pid, status, exit_code, stdout, stderr,
+                       started_at, finished_at
+                FROM executions ORDER BY started_at DESC LIMIT ? OFFSET ?
+                """
+            params: tuple[Any, ...] = (limit, offset)
+        else:
+            query = """
+                SELECT execution_id, hook_name, event_id, pid, status, exit_code, stdout, stderr,
+                       started_at, finished_at
+                FROM executions WHERE event_id = ?
+                ORDER BY started_at DESC LIMIT ? OFFSET ?
+                """
+            params = (event_id, limit, offset)
+        async with self._db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
             return [
                 ExecutionData(

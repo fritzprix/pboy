@@ -77,8 +77,14 @@ class StoreBase(ABC):
         ...
 
     @abstractmethod
-    async def list_executions(self, limit: int = 50, offset: int = 0) -> list[ExecutionData]:
-        """List harness executions."""
+    async def list_executions(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        event_id: str | None = None,
+    ) -> list[ExecutionData]:
+        """List harness executions (optionally filtered by ``event_id``)."""
         ...
 
     # State

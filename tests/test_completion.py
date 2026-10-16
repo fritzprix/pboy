@@ -71,6 +71,55 @@ async def test_complete_event_persists_and_is_idempotent(engine: Engine) -> None
     detail = await engine.event_detail(event.id)
     assert detail is not None
     assert detail["completion"]["summary"] == "All good"
+    assert detail["executions"] == []
+
+
+@pytest.mark.asyncio
+async def test_event_detail_includes_execution_stdout_stderr(engine: Engine) -> None:
+    from pboy.models.execution import ExecutionData
+
+    event = await _seed_telegram_event(engine)
+    await engine.store.record_execution(
+        ExecutionData(
+            hook_name="debug-hook",
+            event_id=event.id,
+            status="failed",
+            exit_code=127,
+            stdout="out-line",
+            stderr="err-line",
+        )
+    )
+    detail = await engine.event_detail(event.id)
+    assert detail is not None
+    assert len(detail["executions"]) == 1
+    assert "executions_truncated" not in detail
+    ex = detail["executions"][0]
+    assert ex["hook_name"] == "debug-hook"
+    assert ex["stdout"] == "out-line"
+    assert ex["stderr"] == "err-line"
+
+
+@pytest.mark.asyncio
+async def test_event_detail_flags_execution_truncation(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pboy.core import engine as engine_mod
+    from pboy.models.execution import ExecutionData
+
+    monkeypatch.setattr(engine_mod, "EVENT_DETAIL_EXECUTION_LIMIT", 2)
+    event = await _seed_telegram_event(engine)
+    for i in range(3):
+        await engine.store.record_execution(
+            ExecutionData(
+                execution_id=f"exec_trunc_{i}",
+                hook_name=f"hook-{i}",
+                event_id=event.id,
+                status="completed",
+                exit_code=0,
+            )
+        )
+    detail = await engine.event_detail(event.id)
+    assert detail is not None
+    assert len(detail["executions"]) == 2
+    assert detail["executions_truncated"] is True
 
 
 @pytest.mark.asyncio

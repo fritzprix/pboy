@@ -31,6 +31,14 @@ def _split_exec(command: str) -> list[str]:
     return shlex.split(command)
 
 
+def _format_exec_failure(message: str, *, exec_cmd: str, argv: list[str] | None = None) -> str:
+    """Include original ``hook.exec`` (and parsed argv) so parsing issues are obvious."""
+    detail = f"{message} (exec={exec_cmd!r}"
+    if argv is not None:
+        detail += f", argv={argv!r}"
+    return detail + ")"
+
+
 async def _communicate(
     proc: asyncio.subprocess.Process,
     stdin_payload: bytes,
@@ -96,7 +104,7 @@ class HarnessExecutor:
                 exec_data,
                 status="failed",
                 exit_code=127,
-                stderr=f"Invalid exec command: {exc}",
+                stderr=_format_exec_failure(f"Invalid exec command: {exc}", exec_cmd=hook.exec),
             )
 
         if not argv:
@@ -104,7 +112,7 @@ class HarnessExecutor:
                 exec_data,
                 status="failed",
                 exit_code=127,
-                stderr="Empty exec command",
+                stderr=_format_exec_failure("Empty exec command", exec_cmd=hook.exec, argv=argv),
             )
 
         env = os.environ.copy()
@@ -136,14 +144,22 @@ class HarnessExecutor:
                 exec_data,
                 status="failed",
                 exit_code=127,
-                stderr=f"Command not found: {argv[0]}",
+                stderr=_format_exec_failure(
+                    f"Command not found: {argv[0]}",
+                    exec_cmd=hook.exec,
+                    argv=argv,
+                ),
             )
         except OSError as exc:
             return await self._finish(
                 exec_data,
                 status="failed",
                 exit_code=127,
-                stderr=f"Failed to spawn: {exc}",
+                stderr=_format_exec_failure(
+                    f"Failed to spawn: {exc}",
+                    exec_cmd=hook.exec,
+                    argv=argv,
+                ),
             )
 
         exec_data.pid = proc.pid
