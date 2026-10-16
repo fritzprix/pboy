@@ -294,3 +294,70 @@ async def test_allowlist_blocks_unauthorized_update_and_skips_file_download(
         )
         assert allowed_chat is not None
 
+
+@pytest.mark.asyncio
+async def test_telegram_pairing_code_flow(
+    engine: Engine,
+    sample_telegram_payload: dict,
+    tmp_path: Path,
+) -> None:
+    import json
+    import re
+
+    from pboy.channels.telegram import TELEGRAM_ALLOWLIST_SECRET_KEY
+
+    settings = Settings(telegram_bot_token="pair-token", data_dir=tmp_path)
+    sent_messages: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sendMessage"):
+            sent_messages.append(json.loads(request.content.decode("utf-8")))
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+        return httpx.Response(200, json={"ok": True, "result": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        channel = TelegramChannel(
+            engine.process_event,
+            engine.store,
+            settings,
+            client=client,
+        )
+        # 1. Start pairing when no prior chat is known -> waiting mode
+        info = await channel.start_pairing()
+        assert info["pairing_active"] is True
+        assert info["sent_immediately"] is False
+
+        # 2. User messages "/start" in Telegram -> bot replies with 6-digit code, event not dispatched
+        start_update = {
+            "update_id": 3001,
+            "message": {
+                **sample_telegram_payload["message"],
+                "text": "/start",
+            },
+        }
+        res = await channel.handle_update(start_update)
+        assert res is None
+        assert len(sent_messages) == 1
+        assert sent_messages[0]["chat_id"] == "-1001"
+        m = re.search(r"(\d{6})", sent_messages[0]["text"])
+        assert m is not None
+        code = m.group(1)
+
+        # 3. Wrong code rejected
+        with pytest.raises(ValueError, match="유효하지 않거나"):
+            await channel.verify_pairing_code("000000")
+
+        # 4. Verify valid code -> stores chat_id and from_id in telegram.allowlist
+        ids = await channel.verify_pairing_code(code)
+        assert "-1001" in ids
+        assert "991" in ids
+        assert channel.pairing_active is False
+        stored = await engine.store.get_secret(TELEGRAM_ALLOWLIST_SECRET_KEY)
+        assert stored == "-1001,991"
+
+        # 5. Subsequent start_pairing when last_seen_peer is known sends code immediately
+        info2 = await channel.start_pairing()
+        assert info2["sent_immediately"] is True
+        assert len(sent_messages) == 2
+
+

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import secrets
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,7 @@ TELEGRAM_ALLOWLIST_SECRET_KEY = "telegram.allowlist"
 DEFAULT_API_BASE = "https://api.telegram.org"
 # Cap concurrent download+emit work so getUpdates stays responsive.
 _MAX_INFLIGHT_EMITS = 4
+PAIRING_TTL_SECONDS = 300.0
 
 
 def parse_allowlist(raw: str | None) -> frozenset[str]:
@@ -88,10 +91,95 @@ class TelegramChannel:
         self._emit_tasks: set[asyncio.Task[None]] = set()
         self._emit_sem = asyncio.Semaphore(_MAX_INFLIGHT_EMITS)
         self._started = False
+        self._pairing_until: float = 0.0
+        # code -> (chat_id, from_id, expires_at)
+        self._pairing_codes: dict[str, tuple[str | None, str | None, float]] = {}
+        self._last_seen_peer: tuple[str | None, str | None] = (None, None)
 
     @property
     def started(self) -> bool:
         return self._started
+
+    @property
+    def pairing_active(self) -> bool:
+        return time.monotonic() < self._pairing_until
+
+    def _prune_expired_codes(self) -> None:
+        now = time.monotonic()
+        expired = [c for c, (_, _, exp) in self._pairing_codes.items() if exp <= now]
+        for c in expired:
+            self._pairing_codes.pop(c, None)
+
+    def _mint_code_for_peer(self, chat_id: str | None, from_id: str | None) -> str:
+        self._prune_expired_codes()
+        for _ in range(20):
+            code = f"{secrets.randbelow(900000) + 100000:06d}"
+            if code not in self._pairing_codes:
+                break
+        expires = max(self._pairing_until, time.monotonic() + PAIRING_TTL_SECONDS)
+        self._pairing_codes[code] = (chat_id, from_id, expires)
+        return code
+
+    async def _send_pairing_message(self, chat_id: str, code: str) -> bool:
+        """Send the 6-digit pairing code to ``chat_id`` via Bot API."""
+        try:
+            if not self._token:
+                self._token = await self._resolve_token()
+            res = await self._client.post(
+                self._bot_url("sendMessage"),
+                json={
+                    "chat_id": chat_id,
+                    "text": f"Pageboy 인증 코드: {code}\n(설정 화면에 이 6자리 숫자를 입력하세요)",
+                },
+            )
+            return res.status_code < 400 and bool(res.json().get("ok"))
+        except Exception as exc:
+            logger.warning(
+                "channel.telegram pairing sendMessage failed: {}",
+                redact_secret(str(exc), self._token),
+            )
+            return False
+
+    async def start_pairing(self, *, ttl: float = PAIRING_TTL_SECONDS) -> dict[str, Any]:
+        """Open a pairing window; if a recent chat is known, send a code immediately."""
+        self._pairing_until = time.monotonic() + ttl
+        self._prune_expired_codes()
+        chat_id, from_id = self._last_seen_peer
+        sent_immediately = False
+        if chat_id:
+            code = self._mint_code_for_peer(chat_id, from_id)
+            sent_immediately = await self._send_pairing_message(chat_id, code)
+        return {
+            "pairing_active": True,
+            "ttl_seconds": int(ttl),
+            "sent_immediately": sent_immediately,
+        }
+
+    async def verify_pairing_code(self, code: str) -> list[str]:
+        """Verify a 6-digit pairing code and append its chat_id/from_id to ``telegram.allowlist``."""
+        self._prune_expired_codes()
+        cleaned = code.strip()
+        entry = self._pairing_codes.pop(cleaned, None)
+        if entry is None:
+            raise ValueError("유효하지 않거나 만료된 인증 코드입니다.")
+        chat_id, from_id, _exp = entry
+        new_ids: list[str] = []
+        for candidate in (chat_id, from_id):
+            if candidate and candidate not in new_ids:
+                new_ids.append(candidate)
+        if not new_ids:
+            raise ValueError("대화방 ID를 확인할 수 없습니다.")
+
+        existing_raw = await self._store.get_secret(TELEGRAM_ALLOWLIST_SECRET_KEY)
+        merged = list(parse_allowlist(existing_raw))
+        for cid in new_ids:
+            if cid not in merged:
+                merged.append(cid)
+        merged_sorted = sorted(merged)
+        await self._store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, ",".join(merged_sorted))
+        self._pairing_until = 0.0
+        logger.info("channel.telegram paired ids={}", new_ids)
+        return merged_sorted
 
     async def _resolve_token(self) -> str:
         env_token = self._settings.telegram_bot_token.strip()
@@ -114,10 +202,27 @@ class TelegramChannel:
         return parse_allowlist(stored)
 
     async def _is_allowed(self, message: dict[str, Any], update_id: int | None) -> bool:
+        chat_id, from_id = _extract_message_ids(message)
+        if chat_id or from_id:
+            self._last_seen_peer = (chat_id, from_id)
+
+        # While pairing mode is active, reply with a 6-digit code to any chat message.
+        if self.pairing_active and chat_id:
+            code = self._mint_code_for_peer(chat_id, from_id)
+            await self._send_pairing_message(chat_id, code)
+            text = str(message.get("text") or "").strip()
+            # If the message is "/start" or "/pair" or sender is not yet allowed,
+            # consume the update for pairing without dispatching hooks.
+            allowlist_now = await self._resolve_allowlist()
+            is_in_allowlist = not allowlist_now or (
+                (chat_id in allowlist_now) or (bool(from_id) and from_id in allowlist_now)
+            )
+            if not is_in_allowlist or text.startswith("/start") or text.startswith("/pair"):
+                return False
+
         allowlist = await self._resolve_allowlist()
         if not allowlist:
             return True
-        chat_id, from_id = _extract_message_ids(message)
         if (chat_id and chat_id in allowlist) or (from_id and from_id in allowlist):
             return True
         logger.warning(

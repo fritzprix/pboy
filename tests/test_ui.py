@@ -280,6 +280,27 @@ async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> No
         tg = next(r for r in status if r["name"] == "telegram")
         assert tg["enabled"] is True
 
+        # Trigger UI pairing start -> sets pairing_active on the running adapter
+        pair_start = await client.post(
+            "/ui/settings/channels/telegram/pair-start",
+            follow_redirects=False,
+        )
+        assert pair_start.status_code == 303
+        adapter = application.state.channel_registry.get("telegram")
+        assert adapter is not None
+        assert adapter.pairing_active is True
+
+        # Mint a code on the adapter as if a message arrived, then verify via UI form
+        code = adapter._mint_code_for_peer("777888", "777888")
+        pair_verify = await client.post(
+            "/ui/settings/channels/telegram/pair-verify",
+            data={"code": code},
+            follow_redirects=False,
+        )
+        assert pair_verify.status_code == 303
+        assert "telegram.allowlist" in pair_verify.headers["location"]
+        assert await eng.store.get_secret("telegram.allowlist") == "777888"
+
 
 @pytest.mark.asyncio
 async def test_ui_loopback_mutation_allowed(tmp_path: Path) -> None:
