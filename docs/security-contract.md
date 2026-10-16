@@ -68,3 +68,52 @@ loopback + local `Host` like any other client.
 - Run on the same machine as the browser/CLI (`uvx pboy ui`).
 - Point CLI at the daemon with `PB_DAEMON_URL=http://127.0.0.1:8080` when needed.
 - Do not publish the port, and do not reverse-proxy it.
+
+## Production security checklist
+
+Operator-facing checklist for a **local** Alpha install. There is **no**
+`PB_AUTH_TOKEN` and no login — items below replace “set a daemon secret”.
+
+| Check | Expectation |
+|-------|-------------|
+| Bind | Default / only `127.0.0.1` (or other loopback). Startup must refuse `0.0.0.0`, LAN IPs, and non-loopback DNS names. |
+| Exposure | Do **not** publish the port (Docker `-p`, cloud firewall, reverse proxy, SSH `-L` to untrusted clients). |
+| Reverse proxy | **Forbidden.** Rewriting `Host` to `localhost` defeats `LocalOnlyGuard`. |
+| Host / machine | Single-user machine you trust. Other local OS users/processes can call the API and create hooks → **command execution** as the daemon user. |
+| Secret key | `~/.config/pboy/secret.key` is created mode `0600`. Do not chmod it world-readable; prefer not sharing the home directory. |
+| DB / files | Default DB `~/.local/share/pboy/pboy.db`; channel files under `…/files/`. Treat as sensitive (events, secrets ciphertext, attachments). |
+| Channel tokens | Store via UI/CLI/env; never commit tokens. Env overrides store when non-empty (see operator guide). |
+| Hooks | Only register `exec` you intend to run; harness runs as the daemon OS user with full local privileges of that account. |
+| CLI split-brain | Set `PB_DAEMON_URL=http://127.0.0.1:<port>` whenever the daemon is up so CLI mutations hit the same DB. |
+| Health | `curl -s http://127.0.0.1:8080/healthz` from the same host only. |
+
+## Outbound / SSRF policy (Telegram)
+
+Pageboy does **not** accept operator- or event-controlled HTTP URLs for Telegram
+I/O.
+
+| Path | URL source | Guarantee |
+|------|------------|-----------|
+| Inbound long-poll / `getFile` download | Hard-coded `DEFAULT_API_BASE` (`https://api.telegram.org`) + bot token + Bot API paths. `api_base` is a constructor/test inject only — **not** settings, env, or CloudEvent fields. | No user-controlled request URL. |
+| Outbound `sendMessage` / `sendPhoto` / … | Same fixed `api_base` + fixed method names. Chat/message targets come from event fields (`channel_id`, `entity_key`) as Telegram IDs, not URLs. | No user-controlled request URL. |
+| Reply `file_path` | Local path only; must resolve under `data_dir/files` (`resolve_reply_file_path`). | No arbitrary local file read (LFI) via complete API. |
+| Reply `file_id` | Passed to Telegram as a Bot API file id string, not fetched as an HTTP URL by Pageboy. | N/A |
+
+Slack uses the official Socket Mode / Web API clients with tokens from env/store —
+same idea: no event-payload URL open redirects.
+
+**Not in scope for Alpha:** a runtime allowlist beyond the fixed Telegram base.
+The explicit guarantee is *no user-controlled URLs*, not “call any host on an
+allowlist”.
+
+## Known limits (Alpha)
+
+- **No session cookies / no UI login** — the old “cookie not `Secure` on
+  `http://127.0.0.1`” note is obsolete; there is nothing to mark `Secure`.
+- **Any local peer** that can open the loopback port has full API access
+  (read events, put secrets, create hooks).
+- **Harness = RCE as daemon user** by design once a hook is registered.
+- **Inbound/outbound file retention** under `data_dir/files/` is not pruned
+  automatically (see issue #30).
+- **Multi-tenant / public SaaS / LAN listen** are out of scope; do not stretch
+  this process into those deployments.
