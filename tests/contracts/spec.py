@@ -49,6 +49,7 @@ EVENT_DATA_KNOWN_KEYS: Final[frozenset[str]] = frozenset(
         "priority",
         "labels",
         "raw_ref",
+        "attachments",
         "extra",
     }
 )

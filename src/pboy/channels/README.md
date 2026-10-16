@@ -73,6 +73,16 @@ pboy channel list
 Long-poll calls `deleteWebhook` on start so it does not fight a webhook subscription.
 On API errors the poller backs off exponentially (1s → 60s).
 
+## Inbound files (Telegram)
+
+Photo / document / audio / video messages populate `event.data.attachments`
+(with `file_id`, `file_type`, size, …). Caption (or text) becomes `summary`.
+
+When `PB_TELEGRAM_DOWNLOAD_FILES` is true (default), the channel downloads via
+`getFile` into `~/.local/share/pboy/files/telegram/<update_id>/` (capped ~20 MB)
+and sets `local_path`. Download failures still emit metadata without `local_path`.
+Poll dispatch runs in the background so long hooks do not stall `getUpdates`.
+
 ## Outbound sync (completion reply)
 
 When a harness finishes work it can close the loop:
@@ -88,6 +98,26 @@ This uses the same bot token, posts to `event.data.channel_id`, and replies to
 but the completion record is still persisted. Re-running
 `pboy event complete … --sync telegram` retries **failed/missing** sync targets
 only (successful ones are not re-sent; original summary is kept).
+
+To send a **reply file** (explicit — never auto-echoes inbound attachments):
+
+```bash
+pboy event complete "$PB_EVENT_ID" \
+  --summary 'Report attached' \
+  --sync telegram \
+  --file-path ./out.png \
+  --file-type photo
+# or: --file-id '<telegram-file-id>' --file-type document
+```
+
+The CLI resolves/stages ``--file-path`` under ``data_dir/files`` (copying into
+``files/outbound/<uuid>_name`` when needed) so the daemon path guard cannot read
+arbitrary host files. Direct ``POST /v1/events/.../complete`` with ``file_path``
+is likewise restricted to that directory.
+
+Re-running ``event complete --sync telegram --file-path …`` after a successful
+text sync **sends the original summary again as the media caption** (summary is
+not replaced on retry). That is intentional.
 
 ## Adapter contract
 

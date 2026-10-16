@@ -21,6 +21,7 @@ from pboy.models.completion import (
 )
 from pboy.models.execution import ExecutionData
 from pboy.models.hook import Hook
+from pboy.models.reply_file import ReplyFile
 from pboy.outbound.telegram import TelegramOutbound
 from pboy.store.base import StoreBase
 from pboy.store.sqlite import SQLiteStore
@@ -126,6 +127,7 @@ class Engine:
         *,
         summary: str = "Completed",
         sync: list[str] | None = None,
+        reply_file: ReplyFile | None = None,
     ) -> tuple[EventCompletion, bool]:
         """Mark an event completed; idempotent if already completed.
 
@@ -133,7 +135,8 @@ class Engine:
 
         When already completed, requested ``sync`` targets that previously failed
         (or were never attempted) are retried; successful syncs are not repeated.
-        The original summary is preserved on retry.
+        The original summary is preserved on retry. ``reply_file`` applies to the
+        current sync attempt only (not persisted for silent retries without it).
         """
         lock = await self._completion_lock(event_id)
         async with lock:
@@ -148,9 +151,12 @@ class Engine:
                     event,
                     EventCompletion.model_validate(existing),
                     targets,
+                    reply_file=reply_file,
                 )
 
-            sync_results = await self._run_sync(event, summary, targets)
+            sync_results = await self._run_sync(
+                event, summary, targets, reply_file=reply_file
+            )
             completion = EventCompletion(
                 status="completed",
                 summary=summary,
@@ -182,17 +188,33 @@ class Engine:
         event: CloudEvent,
         completion: EventCompletion,
         targets: list[str],
+        *,
+        reply_file: ReplyFile | None = None,
     ) -> tuple[EventCompletion, bool]:
-        """Re-run only failed/missing sync targets; keep original summary."""
+        """Re-run failed/missing sync targets; keep original summary.
+
+        When ``reply_file`` is set, also re-run targets that already succeeded so a
+        follow-up file reply is not silently dropped.
+        """
         if not targets:
+            if reply_file is not None:
+                logger.warning(
+                    "event.sync_reply_file_ignored id={} reason=no_sync_targets",
+                    event.id,
+                )
             return completion, True
 
         prior = {r.target: r for r in completion.sync_results}
-        retry_targets = [t for t in targets if t not in prior or not prior[t].ok]
+        if reply_file is not None:
+            retry_targets = list(targets)
+        else:
+            retry_targets = [t for t in targets if t not in prior or not prior[t].ok]
         if not retry_targets:
             return completion, True
 
-        new_results = await self._run_sync(event, completion.summary, retry_targets)
+        new_results = await self._run_sync(
+            event, completion.summary, retry_targets, reply_file=reply_file
+        )
         merged = dict(prior)
         for result in new_results:
             merged[result.target] = result
@@ -206,9 +228,10 @@ class Engine:
         )
         await self.store.put_state(event.id, COMPLETION_STATE_KEY, updated.as_state())
         logger.info(
-            "event.sync_retry id={} targets={}",
+            "event.sync_retry id={} targets={} reply_file={}",
             event.id,
             retry_targets,
+            reply_file is not None,
         )
         return updated, True
 
@@ -217,13 +240,19 @@ class Engine:
         event: CloudEvent,
         summary: str,
         targets: list[str],
+        *,
+        reply_file: ReplyFile | None = None,
     ) -> list[SyncResult]:
         results: list[SyncResult] = []
         for target in targets:
             if target == "telegram":
                 outbound = TelegramOutbound(self.store, self.settings)
                 try:
-                    results.append(await outbound.sync_completion(event, summary))
+                    results.append(
+                        await outbound.sync_completion(
+                            event, summary, reply_file=reply_file
+                        )
+                    )
                 finally:
                     await outbound.aclose()
             else:

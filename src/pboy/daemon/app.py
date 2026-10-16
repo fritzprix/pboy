@@ -37,6 +37,7 @@ from pboy.daemon.schemas import (
     SyncResultModel,
 )
 from pboy.models.hook import Hook
+from pboy.models.reply_file import ReplyFile, parse_reply_file_type
 from pboy.store.sqlite import SQLiteStore
 
 
@@ -149,11 +150,22 @@ def create_app(
         event_id: str, body: EventCompleteRequest, request: Request
     ) -> EventCompleteResponse:
         eng: Engine = request.app.state.engine
+        reply_file: ReplyFile | None = None
+        if body.file_path or body.file_id:
+            try:
+                reply_file = ReplyFile(
+                    file_path=body.file_path,
+                    file_id=body.file_id,
+                    file_type=parse_reply_file_type(body.file_type),
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         try:
             completion, already = await eng.complete_event(
                 event_id,
                 summary=body.summary,
                 sync=body.sync,
+                reply_file=reply_file,
             )
         except KeyError as exc:
             detail = exc.args[0] if exc.args else f"Event '{event_id}' not found"

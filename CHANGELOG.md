@@ -28,6 +28,12 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 ### Added
 
 - `LocalOnlyGuard` ASGI middleware applied to every HTTP/WebSocket route
+- Telegram inbound photo/document/audio/video attachments (`data.attachments` + optional
+  local download under `data_dir/files/telegram/`; `PB_TELEGRAM_DOWNLOAD_FILES`)
+- `event complete` reply files: `--file-path` / `--file-id` / `--file-type` → Telegram
+  `sendPhoto` / `sendDocument` / … (explicit only; does not echo inbound attachments).
+  Daemon `file_path` is restricted to `data_dir/files`; CLI stages copies under
+  `files/outbound/` when needed. Caption truncated to 1024; upload size capped.
 
 ### Fixed
 

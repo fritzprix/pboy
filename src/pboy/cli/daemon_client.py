@@ -104,11 +104,21 @@ class DaemonClient:
         *,
         summary: str = "Completed",
         sync: list[str] | None = None,
+        file_path: str | None = None,
+        file_id: str | None = None,
+        file_type: str | None = None,
     ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"summary": summary, "sync": list(sync or [])}
+        if file_path:
+            payload["file_path"] = file_path
+        if file_id:
+            payload["file_id"] = file_id
+        if file_type:
+            payload["file_type"] = file_type
         response = self._request(
             "POST",
             f"/v1/events/{event_id}/complete",
-            json={"summary": summary, "sync": list(sync or [])},
+            json=payload,
         )
         response.raise_for_status()
         body: dict[str, Any] = response.json()

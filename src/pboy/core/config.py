@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # Telegram Bot API token (optional). Prefer store secret ``telegram.bot_token``;
     # env wins when both are set.
     telegram_bot_token: str = ""
+    # When true, Telegram channel downloads inbound files before emit (size-capped).
+    telegram_download_files: bool = True
 
     # Slack Socket Mode tokens (optional). Prefer store secrets
     # ``slack.bot_token`` / ``slack.app_token``; env wins when set.

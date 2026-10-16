@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from pboy.core.telegram_media import (
+    extract_telegram_attachments,
+    get_local_files,
+    merge_local_paths,
+)
 from pboy.models.cloudevent import (
     TOPIC_TO_TYPE,
     CloudEvent,
@@ -87,7 +92,7 @@ class EventNormalizer:
             source="jira",
             type=event_type,
             time=current_iso_time(),
-            data=data.model_dump(exclude_none=True),
+            data=data.as_cloud_data(),
         )
 
     def _normalize_confluence(self, payload: dict[str, Any]) -> CloudEvent:
@@ -120,7 +125,7 @@ class EventNormalizer:
             source="confluence",
             type=event_type,
             time=current_iso_time(),
-            data=data.model_dump(exclude_none=True),
+            data=data.as_cloud_data(),
         )
 
     def _normalize_slack(self, payload: dict[str, Any]) -> CloudEvent:
@@ -147,7 +152,7 @@ class EventNormalizer:
             source="slack",
             type=event_type,
             time=current_iso_time(),
-            data=data.model_dump(exclude_none=True),
+            data=data.as_cloud_data(),
         )
 
     def _normalize_telegram(self, payload: dict[str, Any]) -> CloudEvent:
@@ -161,6 +166,12 @@ class EventNormalizer:
         sender_id = sender.get("id")
         sender_name = sender.get("username") or sender.get("first_name")
         text = _as_str(message.get("text"))
+        caption = _as_str(message.get("caption"))
+        summary = text or caption
+
+        attachments = extract_telegram_attachments(message)
+        # Only channel-bound context (never inject/HTTP payload keys).
+        attachments = merge_local_paths(attachments, get_local_files())
 
         data = EventData(
             entity_key=str(message.get("message_id", "")),
@@ -169,8 +180,9 @@ class EventNormalizer:
                 id=str(sender_id) if sender_id is not None else "",
                 display_name=str(sender_name) if sender_name is not None else None,
             ),
-            summary=text,
-            description=text,
+            summary=summary,
+            description=summary,
+            attachments=attachments,
         )
 
         return CloudEvent(
@@ -178,7 +190,7 @@ class EventNormalizer:
             source="telegram",
             type=event_type,
             time=current_iso_time(),
-            data=data.model_dump(exclude_none=True),
+            data=data.as_cloud_data(),
         )
 
     def _normalize_generic(self, payload: dict[str, Any], source: str) -> CloudEvent:

@@ -340,16 +340,79 @@ def event_complete(
         str | None,
         typer.Option("--sync", help="Outbound sync targets (comma-separated, e.g. telegram)"),
     ] = None,
+    file_path: Annotated[
+        str | None,
+        typer.Option("--file-path", help="Local file to send on telegram sync"),
+    ] = None,
+    file_id: Annotated[
+        str | None,
+        typer.Option("--file-id", help="Telegram file_id to re-send on sync"),
+    ] = None,
+    file_type: Annotated[
+        str | None,
+        typer.Option(
+            "--file-type",
+            help="Reply file type: photo|document|audio|video (default document)",
+        ),
+    ] = None,
 ) -> None:
     """Mark an event processing as complete (optional outbound sync)."""
+    from pathlib import Path
+
     from pboy.models.completion import parse_sync_targets
+    from pboy.models.reply_file import ReplyFile, parse_reply_file_type
 
     targets = parse_sync_targets(sync)
+    if file_type and not (file_path or file_id):
+        typer.echo("--file-type requires --file-path or --file-id.", err=True)
+        raise typer.Exit(code=1)
+    if file_path and file_id:
+        typer.echo("Use only one of --file-path or --file-id.", err=True)
+        raise typer.Exit(code=1)
+    if (file_path or file_id) and "telegram" not in targets:
+        typer.echo(
+            "Warning: --file-* set without --sync telegram; file will not be sent.",
+            err=True,
+        )
+
+    # Stage under data_dir/files (absolute) so daemon cwd / path guard are safe.
+    resolved_path: str | None = None
+    if file_path:
+        from pboy.core.config import get_settings
+        from pboy.models.reply_file import stage_reply_file_for_daemon
+
+        try:
+            staged = stage_reply_file_for_daemon(
+                Path(file_path),
+                files_root=get_settings().data_dir / "files",
+            )
+        except OSError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        resolved_path = str(staged)
+
+    reply_file: ReplyFile | None = None
+    if resolved_path or file_id:
+        try:
+            reply_file = ReplyFile(
+                file_path=resolved_path,
+                file_id=file_id,
+                file_type=parse_reply_file_type(file_type),
+            )
+        except Exception as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+
     daemon_url = resolve_daemon_url()
     if daemon_url:
         try:
             body = DaemonClient(daemon_url).complete_event(
-                event_id, summary=summary, sync=targets
+                event_id,
+                summary=summary,
+                sync=targets,
+                file_path=resolved_path,
+                file_id=file_id,
+                file_type=file_type or ("document" if reply_file else None),
             )
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
@@ -373,7 +436,7 @@ def event_complete(
         engine = Engine(store=store)
         try:
             completion, already = await engine.complete_event(
-                event_id, summary=summary, sync=targets
+                event_id, summary=summary, sync=targets, reply_file=reply_file
             )
         except KeyError as exc:
             typer.echo(str(exc), err=True)

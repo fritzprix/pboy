@@ -146,8 +146,10 @@ async def test_complete_event_runs_telegram_sync(
     event = await _seed_telegram_event(engine)
     calls: list[str] = []
 
-    async def _fake_sync(self: Any, evt: CloudEvent, summary: str) -> SyncResult:
-        del self, evt
+    async def _fake_sync(
+        self: Any, evt: CloudEvent, summary: str, *, reply_file: Any = None
+    ) -> SyncResult:
+        del self, evt, reply_file
         calls.append(summary)
         return SyncResult(target="telegram", ok=True, detail="sent", message_id="7")
 
@@ -223,8 +225,10 @@ async def test_complete_retries_failed_sync_only(
     )
     calls: list[str] = []
 
-    async def _fake_sync(self: Any, evt: CloudEvent, summary: str) -> SyncResult:
-        del self, evt
+    async def _fake_sync(
+        self: Any, evt: CloudEvent, summary: str, *, reply_file: Any = None
+    ) -> SyncResult:
+        del self, evt, reply_file
         calls.append(summary)
         return next(outcomes)
 
@@ -265,8 +269,10 @@ async def test_concurrent_complete_runs_sync_once(
     event = await _seed_telegram_event(engine)
     calls: list[int] = []
 
-    async def _fake_sync(self: Any, evt: CloudEvent, summary: str) -> SyncResult:
-        del self, evt, summary
+    async def _fake_sync(
+        self: Any, evt: CloudEvent, summary: str, *, reply_file: Any = None
+    ) -> SyncResult:
+        del self, evt, summary, reply_file
         calls.append(1)
         await asyncio.sleep(0.05)
         return SyncResult(target="telegram", ok=True, detail="sent", message_id="1")

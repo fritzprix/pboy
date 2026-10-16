@@ -80,6 +80,10 @@ class HookDeleteResponse(BaseModel):
 class EventCompleteRequest(BaseModel):
     summary: str = "Completed"
     sync: list[str] = Field(default_factory=list)
+    # Explicit reply attachment (never auto-echoes inbound event attachments).
+    file_path: str | None = None
+    file_id: str | None = None
+    file_type: str | None = None
 
 
 class SyncResultModel(BaseModel):

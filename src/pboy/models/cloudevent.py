@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +39,21 @@ class EventActor(BaseModel):
     display_name: str | None = None
 
 
+TelegramFileType = Literal["photo", "document", "audio", "video"]
+
+
+class EventAttachment(BaseModel):
+    """Inbound file attached to an event (e.g. Telegram photo/document)."""
+
+    file_id: str
+    file_type: TelegramFileType
+    file_unique_id: str | None = None
+    file_name: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
+    local_path: str | None = None
+
+
 class EventData(BaseModel):
     """Normalized payload data inside CloudEvent."""
 
@@ -51,7 +66,19 @@ class EventData(BaseModel):
     priority: str | None = None
     labels: list[str] = Field(default_factory=list)
     raw_ref: str | None = None
+    attachments: list[EventAttachment] = Field(default_factory=list)
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    def as_cloud_data(self) -> dict[str, Any]:
+        """Serialize for CloudEvent.data.
+
+        Omits empty ``attachments`` only (Telegram media). Keeps empty ``labels`` /
+        ``extra`` so existing hooks that read ``data["labels"]`` keep working.
+        """
+        dumped = self.model_dump(exclude_none=True)
+        if not self.attachments:
+            dumped.pop("attachments", None)
+        return dumped
 
 
 class CloudEvent(BaseModel):
@@ -71,7 +98,9 @@ __all__ = [
     "TYPE_TO_TOPIC",
     "CloudEvent",
     "EventActor",
+    "EventAttachment",
     "EventData",
+    "TelegramFileType",
     "current_iso_time",
     "generate_event_id",
 ]
