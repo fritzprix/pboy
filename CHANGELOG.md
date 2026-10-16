@@ -29,6 +29,9 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 - Operator guide (`docs/operator.md`): deploy/runbook, Telegram happy-path checklist,
   troubleshooting (channel/hook/`PB_DAEMON_URL` split-brain/403); linked from README (#18)
+- Production security checklist, Telegram outbound/SSRF policy (fixed API base;
+  no user-controlled URLs), and Alpha known limits in
+  [`docs/security-contract.md`](docs/security-contract.md) (#17)
 - `LocalOnlyGuard` ASGI middleware applied to every HTTP/WebSocket route
 - Telegram inbound photo/document/audio/video attachments (`data.attachments` + optional
   local download under `data_dir/files/telegram/`; `PB_TELEGRAM_DOWNLOAD_FILES`)

@@ -55,7 +55,10 @@ Slack은 Socket Mode용 **bot 토큰(`xoxb-`)** + **앱 토큰(`xapp-`, `connect
 
 ## 보안 (짧게)
 
-Pageboy는 **local-only**입니다. loopback 바인드만 허용하고, 모든 요청은 같은 머신 + 로컬 `Host`여야 합니다. LAN/`0.0.0.0`은 지원하지 않습니다. **리버스 프록시를 앞에 두지 마세요** (Host를 localhost로 바꾸면 원격 클라이언트가 로컬로 보입니다). 같은 머신의 다른 사용자·프로세스도 데몬에 닿을 수 있습니다. → [`docs/security-contract.md`](docs/security-contract.md)
+Pageboy는 **local-only**입니다. loopback 바인드만 허용하고, 모든 요청은 같은 머신 + 로컬 `Host`여야 합니다. LAN/`0.0.0.0`은 지원하지 않습니다. **리버스 프록시를 앞에 두지 마세요** (Host를 localhost로 바꾸면 원격 클라이언트가 로컬로 보입니다). 같은 머신의 다른 사용자·프로세스도 데몬에 닿을 수 있습니다.
+
+운영 체크리스트 · Telegram SSRF 정책(고정 `api.telegram.org`, 사용자 제어 URL 없음) · 알려진 한계:
+[`docs/security-contract.md`](docs/security-contract.md)
 
 CLI가 같은 데몬 DB를 쓰려면 `PB_DAEMON_URL=http://127.0.0.1:8080`을 맞추세요. 없으면 CLI가 **별도 로컬 DB**를 써서 split-brain이 납니다.
 
