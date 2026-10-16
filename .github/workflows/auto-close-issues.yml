@@ -1,0 +1,100 @@
+name: Auto-close Issues on Dev Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - "dev/**"
+
+permissions:
+  issues: write
+  pull-requests: read
+  contents: read
+
+jobs:
+  close-linked-issues:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - name: Parse closing keywords and close issues
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          pr_num = os.environ["PR_NUMBER"]
+          base_ref = os.environ["BASE_REF"]
+          texts = [
+              os.environ.get("PR_TITLE") or "",
+              os.environ.get("PR_BODY") or "",
+          ]
+
+          # Also inspect commit messages in the merged PR
+          res = subprocess.run(
+              [
+                  "gh",
+                  "pr",
+                  "view",
+                  pr_num,
+                  "--json",
+                  "commits",
+                  "--jq",
+                  ".commits[] | (.messageHeadline + \"\\n\" + .messageBody)",
+              ],
+              capture_output=True,
+              text=True,
+          )
+          if res.returncode == 0:
+              texts.append(res.stdout)
+
+          pattern = re.compile(
+              r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)\b",
+              re.IGNORECASE,
+          )
+          issues: list[int] = []
+          for chunk in texts:
+              for m in pattern.finditer(chunk):
+                  num = int(m.group(1))
+                  if num > 0 and num not in issues:
+                      issues.append(num)
+
+          if not issues:
+              print(f"No closing keywords found in PR #{pr_num}.")
+              raise SystemExit(0)
+
+          for issue_num in issues:
+              state_res = subprocess.run(
+                  ["gh", "issue", "view", str(issue_num), "--json", "state", "--jq", ".state"],
+                  capture_output=True,
+                  text=True,
+              )
+              if state_res.returncode != 0:
+                  print(f"Skipping #{issue_num} (not found or not an issue).")
+                  continue
+              if state_res.stdout.strip().upper() == "CLOSED":
+                  print(f"Issue #{issue_num} is already closed.")
+                  continue
+
+              subprocess.run(
+                  [
+                      "gh",
+                      "issue",
+                      "close",
+                      str(issue_num),
+                      "--reason",
+                      "completed",
+                      "--comment",
+                      f"Automatically closed via #{pr_num} merged into `{base_ref}`.",
+                  ],
+                  check=True,
+              )
+              print(f"Closed #{issue_num}.")
+          PY
