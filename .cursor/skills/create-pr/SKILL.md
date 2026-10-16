@@ -1,10 +1,10 @@
 ---
 name: create-pr
 description: >-
-  Create or update a GitHub Pull Request for Pageboy (pboy) targeting the latest
-  dev/M.m.x branch (e.g. dev/0.2.x) as base, and automatically binding related
-  issues with GitHub auto-close keywords (Closes #N). Use when the user asks to
-  create a PR, open a pull request, submit a PR, or fix PR base/issue links.
+  Create or update a GitHub Pull Request for Pageboy (pboy). If the user specifies
+  a target branch (e.g. `create pr main`), use that branch as base; if omitted,
+  implicitly use the latest dev/M.m.x branch (e.g. dev/0.2.x) as base. Always bind
+  related issues with GitHub auto-close keywords (Closes #N).
 ---
 
 # Create Pull Request (`pboy`)
@@ -14,15 +14,18 @@ description: >-
 Use this skill whenever the user asks to:
 
 - `create pr` / `open pr` / `submit pr` / `PR 만들어줘` / `PR 올려줘`
+- `create pr <branch>` (e.g. `create pr main`, `create pr dev/0.2.x`)
 - Update an existing PR's base branch or linked closing issues.
 
 ## Core Rules (Always Enforce)
 
-1. **Base branch is ALWAYS the latest `dev/M.m.x` branch** (highest minor train among `dev/*` branches, e.g. `dev/0.2.x` where continuous `0.2.*` patches land), **never `main`**, unless the user explicitly requests a release/integration PR into `main`.
+1. **Base branch resolution**:
+   - **When a branch is specified** (e.g. `create pr main`, `main으로 PR 올려줘`): use the user-specified branch as `--base <branch>`.
+   - **When no branch is specified** (e.g. `create pr`, `PR 올려줘`): **implicitly** use the latest `dev/M.m.x` branch (highest minor train among `dev/*` branches, e.g. `dev/0.2.x`) as `--base`. Never fall back to GitHub's default (`main`) implicitly.
 2. **Auto-close keywords for all related issues**:
    - Every related issue MUST be bound in the PR body using GitHub's closing keywords (`Closes #N`, `Fixes #N`, or `Resolves #N`).
    - When closing multiple issues, repeat the keyword for **each** issue (e.g. `Closes #18`, `Closes #27` on separate lines or comma-separated `Closes #18, Closes #27` — never `Closes #18, #27`, which GitHub ignores for the second issue).
-   - Note: GitHub auto-closes issues immediately when the PR targets the default branch, or when the `dev/M.m.x` branch is later merged into the default branch (`main`). Keeping `Closes #N` in both the commit message and PR body ensures GitHub links the PR to the issue timeline and triggers auto-close reliably.
+   - Note: GitHub auto-closes issues immediately when a PR merges into the default branch (`main`), or when the `dev/M.m.x` branch is later merged into `main`. Keeping `Closes #N` in both the commit message and PR body ensures GitHub links the PR to the issue timeline and triggers auto-close reliably.
 
 ## Workflow
 
@@ -31,10 +34,10 @@ Copy and track:
 ```
 Create PR:
 - [ ] Fetch latest remote refs (`git fetch origin`)
-- [ ] Resolve latest `dev/M.m.x` base branch & related issue numbers
-- [ ] Verify diff against `origin/dev/M.m.x` (no unintended commits)
+- [ ] Resolve base branch (explicit `<branch>` if given, else latest `dev/M.m.x`) & related issue numbers
+- [ ] Verify diff against `origin/<base>` (no unintended commits)
 - [ ] Push current head branch to `origin`
-- [ ] Create (or update) PR with `--base dev/M.m.x` and `Closes #N` in body
+- [ ] Create (or update) PR with `--base <base>` and `Closes #N` in body
 ```
 
 ### 1. Resolve Base Branch and Issues
@@ -43,15 +46,21 @@ Run the helper script from repo root after fetching remote refs:
 
 ```bash
 git fetch origin
+
+# Case A: No base branch specified by user -> implicitly selects latest dev/M.m.x
 python .cursor/skills/create-pr/scripts/prepare_pr.py
-# Or specify additional issue numbers explicitly:
+
+# Case B: User specified a target base branch (e.g. `create pr main`)
+python .cursor/skills/create-pr/scripts/prepare_pr.py main
+
+# Optional: pass additional issue numbers explicitly
 python .cursor/skills/create-pr/scripts/prepare_pr.py --issue 18
 ```
 
 The script:
-- Finds all `dev/M.m.x` (and `dev/M.m.p`) branches (`origin/dev/*` and local `dev/*`) and selects the highest minor train (e.g. `dev/0.2.x`).
+- Uses the positional `<target_base>` (or `--base <branch>`) when provided; otherwise finds all `dev/M.m.x` (and `dev/M.m.p`) branches across `origin/dev/*` and local `dev/*` and selects the highest minor train (e.g. `dev/0.2.x`).
 - Extracts issue numbers from the current branch name (e.g. `feat/27-...` → `#27`, `docs/18-...` → `#18`) and commit messages between `origin/<base>..HEAD`.
-- Prints the formatted `Closes #N` lines.
+- Prints the resolved `base` and formatted `Closes #N` lines.
 
 If no issue number is detected, check `gh issue list` or ask the user which issue(s) this PR resolves before creating the PR.
 
@@ -74,7 +83,7 @@ git push -u origin HEAD
 
 ### 4. Create (or Update) the PR
 
-Create the PR with `gh pr create`, passing `--base <latest-dev-branch>` and including the `Closes #N` block in the body:
+Create the PR with `gh pr create`, passing `--base <base>` and including the `Closes #N` block in the body:
 
 ```bash
 gh pr create \
@@ -96,7 +105,7 @@ EOF
 
 #### Updating an existing PR
 
-If a PR already exists for the branch (e.g. opened against `main` by mistake or missing closing keywords):
+If a PR already exists for the branch (e.g. opened against the wrong base or missing closing keywords):
 
 ```bash
 gh pr edit <pr_number> --base "<base>" --body "<updated body with Closes #N>"
@@ -104,6 +113,6 @@ gh pr edit <pr_number> --base "<base>" --body "<updated body with Closes #N>"
 
 ## Do Not
 
-- Do **not** omit `--base` on `gh pr create` (omitting it defaults to `main` and pollutes the PR diff with all unmerged `dev/M.m.x` commits).
+- Do **not** omit `--base` on `gh pr create`.
 - Do **not** write `Closes #12, #34` without repeating the keyword — always write `Closes #12` and `Closes #34` individually.
 - Do **not** guess issue numbers; verify with `prepare_pr.py` or `gh issue view <N>`.

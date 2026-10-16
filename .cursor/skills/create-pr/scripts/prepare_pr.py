@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Prepare PR parameters for Pageboy (`pboy`): resolve latest ``dev/M.m.x`` base and closing issues.
+"""Prepare PR parameters for Pageboy (`pboy`): resolve base branch and closing issues.
 
 Usage:
+    # Implicit base: automatically selects the latest dev/M.m.x branch
     python .cursor/skills/create-pr/scripts/prepare_pr.py
-    python .cursor/skills/create-pr/scripts/prepare_pr.py --issue 18 --issue 27
-    python .cursor/skills/create-pr/scripts/prepare_pr.py --base dev/0.2.x --json
+
+    # Explicit base branch specified by user (e.g., `create pr main` or `create pr dev/0.1.x`)
+    python .cursor/skills/create-pr/scripts/prepare_pr.py main
+    python .cursor/skills/create-pr/scripts/prepare_pr.py --base main
+    python .cursor/skills/create-pr/scripts/prepare_pr.py --issue 18 --json
 """
 
 from __future__ import annotations
@@ -66,6 +70,14 @@ def find_latest_dev_branch() -> str:
     return candidates[latest_key]
 
 
+def normalize_base_branch(raw: str) -> str:
+    """Strip leading ``origin/`` if the caller passed a remote-tracking name."""
+    cleaned = raw.strip()
+    if cleaned.startswith("origin/"):
+        cleaned = cleaned[len("origin/") :]
+    return cleaned
+
+
 def current_branch() -> str:
     branch = _git("rev-parse", "--abbrev-ref", "HEAD")
     if branch == "HEAD":
@@ -113,8 +125,14 @@ def format_closing_lines(issues: list[int]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "target_base",
+        nargs="?",
+        help="Optional target base branch (e.g. `main` or `dev/0.1.x`). "
+        "If omitted, defaults to the latest `dev/M.m.x` branch.",
+    )
+    parser.add_argument(
         "--base",
-        help="Explicit base branch (defaults to highest dev/M.m.x)",
+        help="Explicit base branch (overrides positional target_base; defaults to highest dev/M.m.x)",
     )
     parser.add_argument(
         "--issue",
@@ -132,9 +150,10 @@ def main() -> None:
     args = parser.parse_args()
 
     head = current_branch()
-    base = args.base or find_latest_dev_branch()
-    if head == base or head == "main":
-        raise SystemExit(f"Current branch {head!r} cannot be the PR head against {base!r}.")
+    explicit_base = args.base or args.target_base
+    base = normalize_base_branch(explicit_base) if explicit_base else find_latest_dev_branch()
+    if head == base:
+        raise SystemExit(f"Current branch {head!r} cannot be the PR head against itself ({base!r}).")
 
     issues = infer_issues(head, base, args.issue)
     closing = format_closing_lines(issues)
@@ -142,6 +161,7 @@ def main() -> None:
     payload = {
         "head": head,
         "base": base,
+        "base_source": "explicit" if explicit_base else "latest_dev",
         "issues": issues,
         "closing_keywords": closing,
     }
@@ -151,7 +171,7 @@ def main() -> None:
         return
 
     print(f"head:    {head}")
-    print(f"base:    {base}")
+    print(f"base:    {base} ({payload['base_source']})")
     print(f"issues:  {', '.join(f'#{i}' for i in issues) if issues else '(none detected — pass --issue N)'}")
     if closing:
         print("closing:")
