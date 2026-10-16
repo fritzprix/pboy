@@ -48,6 +48,11 @@ uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
 
 Slack은 Socket Mode용 **bot 토큰(`xoxb-`)** + **앱 토큰(`xapp-`, `connections:write`)** 둘 다 필요합니다. 자세한 절차: [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
 
+## Operator guide
+
+배포·재시작, happy-path 체크리스트, 채널/훅/`PB_DAEMON_URL` split-brain·403 트러블슈팅:
+[`docs/operator.md`](docs/operator.md)
+
 ## 보안 (짧게)
 
 Pageboy는 **local-only**입니다. loopback 바인드만 허용하고, 모든 요청은 같은 머신 + 로컬 `Host`여야 합니다. LAN/`0.0.0.0`은 지원하지 않습니다. **리버스 프록시를 앞에 두지 마세요** (Host를 localhost로 바꾸면 원격 클라이언트가 로컬로 보입니다). 같은 머신의 다른 사용자·프로세스도 데몬에 닿을 수 있습니다. → [`docs/security-contract.md`](docs/security-contract.md)
@@ -86,6 +91,7 @@ uv run mypy src
 ./scripts/smoke_demo.sh
 ```
 
+운영: [`docs/operator.md`](docs/operator.md) · 보안: [`docs/security-contract.md`](docs/security-contract.md)  
 릴리스: [`docs/releasing.md`](docs/releasing.md) · 스킬 `release patch|minor|major`  
 로드맵: [`ROADMAP.md`](ROADMAP.md) · [Issues](https://github.com/fritzprix/pboy/issues)  
 UI/채널 상세: [`src/pboy/ui/README.md`](src/pboy/ui/README.md) · [`src/pboy/channels/README.md`](src/pboy/channels/README.md)

@@ -53,7 +53,7 @@ M6 Hardening (can start early in parallel)
   #15 CI workflow                ✅
   #16 PyPI / uvx release         ← in progress (CHANGELOG + release.yml; first tag → PyPI)
   #17 security checklist         ← local-only contract (docs/security-contract.md + LocalOnlyGuard)
-  #18 operator docs
+  #18 operator docs              ✅ docs/operator.md
 ```
 
 
