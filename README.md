@@ -27,10 +27,9 @@ Default data locations: DB `~/.local/share/pboy/pboy.db` · encryption key `~/.c
 1. Create a bot token with [@BotFather](https://t.me/BotFather).
 2. In `/ui/settings`: paste the Telegram token → save → **Enable** → **pair your chat** with the 6-digit code (or fill the Allowlist field). Prefer this UI path over env vars.
    An empty allowlist allows **any** chat that messages the bot — pair before attaching sensitive hooks.
-3. Register a hook (second shell while the daemon is up):
+3. Register a hook (second shell while the daemon is up — CLI auto-connects to `http://127.0.0.1:8080`):
 
 ```bash
-export PB_DAEMON_URL=http://127.0.0.1:8080
 uvx pboy hook register \
   --name tg-echo \
   --topic 'telegram:message' \
@@ -51,7 +50,7 @@ Slack needs both a **bot token (`xoxb-`)** and an **app token (`xapp-`, `connect
 
 ## Operator guide
 
-Deploy/restart, happy-path checklist, channel/hook/`PB_DAEMON_URL` split-brain and 403 troubleshooting:
+Deploy/restart, happy-path checklist, channel/hook/`--daemon-url` split-brain and 403 troubleshooting:
 [`docs/operator.md`](docs/operator.md)
 
 ## Security (short)

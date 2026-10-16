@@ -458,11 +458,18 @@ async def test_cli_event_complete_via_daemon(
             await eng.start()
         event = await _seed_telegram_event(eng)
 
-        monkeypatch.setenv("PB_DAEMON_URL", f"http://127.0.0.1:{port}")
         runner = CliRunner()
         res = runner.invoke(
             app,
-            ["event", "complete", event.id, "--summary", "via-daemon"],
+            [
+                "event",
+                "complete",
+                event.id,
+                "--summary",
+                "via-daemon",
+                "--daemon-url",
+                f"http://127.0.0.1:{port}",
+            ],
         )
         assert res.exit_code == 0, res.output
         assert "via-daemon" in res.output
@@ -475,7 +482,6 @@ def test_cli_event_complete_roundtrip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("PB_DAEMON_URL", raising=False)
     monkeypatch.setenv("PB_DATABASE_URL", str(tmp_path / "cli-complete.db"))
     monkeypatch.setenv("PB_SECRET_KEY", "cli-complete-key!!")
     import pboy.core.config as config_mod

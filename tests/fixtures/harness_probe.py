@@ -17,7 +17,6 @@ REQUIRED_ENV = (
 )
 OPTIONAL_ENV = (
     "PB_LEASE_TOKEN",
-    "PB_DAEMON_URL",
 )
 
 

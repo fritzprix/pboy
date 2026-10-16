@@ -273,8 +273,6 @@ async def test_contract_harness_stdin_and_env(tmp_store: SQLiteStore) -> None:
     assert env["PB_EVENT_ID"] == event.id
     assert env["PB_SOURCE"] == event.source
     assert env["PB_HOOK_NAME"] == hook.name
-    # Without daemon_url configured, do not force a default daemon URL into the harness.
-    assert "PB_DAEMON_URL" not in env
     assert env["PB_LEASE_TOKEN"] == lease_token
     assert "PB_LEASE_TOKEN" in HARNESS_ENV_OPTIONAL
 

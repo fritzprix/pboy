@@ -19,20 +19,18 @@ Do this once end-to-end before debugging anything else.
    Open [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui).
 
 2. **Enable Telegram** in `/ui/settings`: paste BotFather token → save → **Enable** → pair your chat (or set the **Allowlist**) so only authorized chats can trigger hooks.  
-   Or CLI (same machine, after setting `PB_DAEMON_URL` — see below):
+   Or CLI (same machine; while the daemon is running on `127.0.0.1:8080`, CLI auto-connects to it):
 
    ```bash
-   export PB_DAEMON_URL=http://127.0.0.1:8080
    uvx pboy channel set-secret telegram --value '<bot-token>'
    uvx pboy channel set-secret telegram --secret-name allowlist --value '<your-chat-or-user-id>'
    uvx pboy channel enable telegram
    uvx pboy channel list   # expect enabled + running while daemon is up
    ```
 
-3. **Register a hook** (second shell; must use the daemon URL):
+3. **Register a hook** (second shell; auto-connects to the running daemon):
 
    ```bash
-   export PB_DAEMON_URL=http://127.0.0.1:8080
    uvx pboy hook register \
      --name tg-echo \
      --topic 'telegram:message' \
@@ -45,7 +43,6 @@ Do this once end-to-end before debugging anything else.
 5. **Complete + reply** (optional):
 
    ```bash
-   export PB_DAEMON_URL=http://127.0.0.1:8080
    uvx pboy event list
    uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
    ```
@@ -87,19 +84,17 @@ Pin a version: `uvx pboy@0.1.0 ui`.
 
 Override DB with `--db` / `PB_DATABASE_URL` if you need an isolated instance.
 
-### CLI ↔ daemon (`PB_DAEMON_URL`)
+### CLI ↔ daemon connection (`--daemon-url` / `-u`)
 
-While the daemon runs, **always** point the CLI at it:
+When the daemon is running on the default address (`http://127.0.0.1:8080`), **the CLI automatically detects and connects to it** (via `/healthz`). When the daemon is stopped, the CLI falls back to the local SQLite DB (`~/.local/share/pboy/pboy.db`).
+
+If you run the daemon on a custom port, pass `--daemon-url` (`-u`):
 
 ```bash
-export PB_DAEMON_URL=http://127.0.0.1:8080
+uvx pboy --daemon-url http://127.0.0.1:9000 status
 ```
 
-If unset, CLI opens **its own** SQLite under the default data dir — hooks/events you
-register there never reach the running daemon (**split-brain**).
-
-Harness subprocesses receive `PB_DAEMON_URL` when the daemon configured one, so
-`event complete` from inside a hook can hit the same API.
+If the daemon runs on a custom port or isolated DB (`--db`) and you run the CLI **without** `--daemon-url`, the CLI opens the default local SQLite DB instead of talking to that daemon (**split-brain**).
 
 ### Environment variables (PB_*, advanced)
 
@@ -109,18 +104,17 @@ scripted installs. Prefer the store/UI; env is an override path.
 
 | Variable | When to use | Notes |
 |----------|-------------|-------|
-| `PB_DAEMON_URL` | CLI against a running daemon | Avoids split-brain. Only env most CLI users need. |
 | `PB_TELEGRAM_BOT_TOKEN` | Scripted token inject | Prefer UI/store. Non-empty env overrides store. |
 | `PB_TELEGRAM_ALLOWLIST` | Scripted allowlist | Prefer UI pairing/allowlist. Non-empty env overrides store. |
 | `PB_SLACK_BOT_TOKEN` / `PB_SLACK_APP_TOKEN` | Scripted Slack tokens | Prefer UI/store. |
 | `PB_CHANNELS_ENABLED` | Force enable list | If the variable is **present** (even `""`), it overrides store enable/disable. Easy to shoot yourself in the foot — leave unset for UI. |
-| `PB_DATABASE_URL` / `--db` | Isolated DB | Default: `~/.local/share/pboy/pboy.db`. |
+| `PB_DATABASE_URL` / `--db` | Isolated DB | Default: `~/.local/share/pboy/pboy.db`. When set, CLI uses this local DB directly unless `--daemon-url` is passed. |
 | `PB_SECRET_KEY` | Fixed key in tests/CI | Default: file at `~/.config/pboy/secret.key`. |
 | `PB_CONFIG_DIR` / `PB_DATA_DIR` | Custom paths | Defaults under `~/.config/pboy` and `~/.local/share/pboy`. |
 | `PB_HOST` / `PB_PORT` / `PB_LOG_LEVEL` | Bind / logging | Prefer `pboy ui` / `pboy daemon` flags when possible. |
 
 Harness-injected (not operator config — set by the daemon for hook subprocesses):
-`PB_EVENT_ID`, `PB_SOURCE`, `PB_HOOK_NAME`, and optionally `PB_DAEMON_URL` / `PB_LEASE_TOKEN`.
+`PB_EVENT_ID`, `PB_SOURCE`, `PB_HOOK_NAME`, and optionally `PB_LEASE_TOKEN`.
 See [`security-contract.md`](security-contract.md).
 
 ### Survive reboot (optional systemd user unit)
@@ -156,7 +150,8 @@ multi-user host you do not trust. See [`security-contract.md`](security-contract
 ### Health
 
 ```bash
-curl -s http://127.0.0.1:8080/healthz
+uvx pboy status
+# or: curl -s http://127.0.0.1:8080/healthz
 # channels.running should list enabled adapters (e.g. "telegram")
 ```
 
@@ -166,8 +161,8 @@ curl -s http://127.0.0.1:8080/healthz
 
 ### Channel not receiving
 
-1. Daemon process still running? UI / `curl …/healthz`.
-2. `uvx pboy channel list` **with** `PB_DAEMON_URL` set — `secret=yes`, `enabled`, and
+1. Daemon process still running? UI / `uvx pboy status` / `curl …/healthz`.
+2. `uvx pboy channel list` (pass `--daemon-url` if using a non-default port) — `secret=yes`, `enabled`, and
    **running** (not only stopped-in-store).
 3. Telegram: token valid; BotFather bot started with `/start`; long-poll calls
    `deleteWebhook` on start — a competing webhook elsewhere will steal updates.
@@ -194,12 +189,11 @@ curl -s http://127.0.0.1:8080/healthz
 
 | Symptom | Cause |
 |---------|--------|
-| Hook registered but daemon never runs it | CLI without `PB_DAEMON_URL` wrote a different DB |
+| Hook registered but daemon never runs it | Daemon uses a custom port or `--db`, and CLI ran without matching `--daemon-url` |
 | UI empty, CLI `event list` has rows | Same |
-| Channel enabled in CLI, `/healthz` not running it | Enable hit local store; daemon never saw it |
+| Channel enabled in CLI, `/healthz` not running it | Enable hit local store while daemon was stopped (or on custom port without `--daemon-url`) |
 
-Fix: export `PB_DAEMON_URL=http://127.0.0.1:8080` in every operator shell, or stop using
-CLI against the default path while a daemon is up.
+Fix: run the daemon on the default port (`8080`) so CLI auto-connects, or pass `--daemon-url http://127.0.0.1:<port>` when using a custom port.
 
 ### HTTP 403 / cannot reach UI or API
 

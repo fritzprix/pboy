@@ -41,11 +41,22 @@ def reset_settings(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
     monkeypatch.setattr(config_mod, "_settings", None)
 
 
-def test_resolve_daemon_url_requires_explicit_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("PB_DAEMON_URL", raising=False)
+def test_resolve_daemon_url_cli_flag_and_auto_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pboy.cli.daemon_client as dc_mod
+
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
     assert resolve_daemon_url() is None
-    monkeypatch.setenv("PB_DAEMON_URL", "  http://127.0.0.1:9999  ")
-    assert resolve_daemon_url() == "http://127.0.0.1:9999"
+    assert resolve_daemon_url("  http://127.0.0.1:9999/  ") == "http://127.0.0.1:9999"
+
+    # When default daemon is alive and no custom PB_DATABASE_URL is set, auto-connects:
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: True)
+    assert resolve_daemon_url() == "http://127.0.0.1:8080"
+
+    # Explicit PB_DATABASE_URL disables implicit auto-probe unless --daemon-url is given:
+    monkeypatch.setenv("PB_DATABASE_URL", "/tmp/custom.db")
+    assert resolve_daemon_url() is None
+    assert resolve_daemon_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
 
 
 def test_public_daemon_url_for_loopback_bind() -> None:
@@ -208,37 +219,36 @@ def live_daemon(
 
 def test_real_daemon_client_against_live_http(live_daemon: str) -> None:
     client = DaemonClient(live_daemon)
+    hz = client.healthz()
+    assert hz["status"] == "ok"
+    assert hz["service"] == "pboy-daemon"
+
     hook = client.create_hook(
         HookCreate(name="live-hook", topic="jira:issue.created", exec="echo ok", timeout=30)
     )
     assert hook.name == "live-hook"
     assert any(h.name == "live-hook" for h in client.list_hooks())
 
-    # Create event via store inject path on daemon
-    inject = client._request(
-        "POST",
-        "/v1/events",
-        json={
-            "source": "jira",
-            "payload": {
-                "webhookEvent": "jira:issue_created",
-                "issue": {
-                    "id": "1",
-                    "key": "L-1",
-                    "fields": {
-                        "summary": "s",
-                        "priority": {"name": "High"},
-                        "project": {"key": "L"},
-                        "creator": {"accountId": "u"},
-                        "labels": [],
-                    },
+    # Create event via DaemonClient.inject_event on daemon
+    injected = client.inject_event(
+        "jira",
+        {
+            "webhookEvent": "jira:issue_created",
+            "issue": {
+                "id": "1",
+                "key": "L-1",
+                "fields": {
+                    "summary": "s",
+                    "priority": {"name": "High"},
+                    "project": {"key": "L"},
+                    "creator": {"accountId": "u"},
+                    "labels": [],
                 },
             },
-            "dispatch": False,
         },
+        dispatch=False,
     )
-    assert inject.status_code == 200
-    event_id = inject.json()["event_id"]
+    event_id = injected["event_id"]
     client.put_state(event_id, "execution", {"status": "running", "progress": 5})
     assert client.get_state(event_id) == {"status": "running", "progress": 5}
     assert any(e.id == event_id for e in client.list_events())
@@ -246,7 +256,7 @@ def test_real_daemon_client_against_live_http(live_daemon: str) -> None:
     assert client.delete_hook("live-hook") is True
 
 
-def test_cli_hook_uses_daemon_when_env_set(
+def test_cli_hook_uses_daemon_when_flag_passed(
     cli_runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -260,7 +270,6 @@ def test_cli_hook_uses_daemon_when_env_set(
             created.append(data)
             return Hook(**data.model_dump())
 
-    monkeypatch.setenv("PB_DAEMON_URL", "http://daemon.test")
     monkeypatch.setattr(cli_main, "DaemonClient", FakeClient)
 
     res = cli_runner.invoke(
@@ -268,6 +277,8 @@ def test_cli_hook_uses_daemon_when_env_set(
         [
             "hook",
             "register",
+            "--daemon-url",
+            "http://daemon.test",
             "--name",
             "via-daemon",
             "--topic",
@@ -280,13 +291,15 @@ def test_cli_hook_uses_daemon_when_env_set(
     assert created and created[0].name == "via-daemon"
 
 
-def test_cli_state_uses_sqlite_without_daemon_env(
+def test_cli_state_uses_sqlite_when_daemon_not_running(
     cli_runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     reset_settings: None,
 ) -> None:
-    monkeypatch.delenv("PB_DAEMON_URL", raising=False)
+    import pboy.cli.daemon_client as dc_mod
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
     cfg = Settings(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data", secret_key="cli-local")
     cfg.ensure_dirs()
     monkeypatch.setattr(config_mod, "_settings", cfg)

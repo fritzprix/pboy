@@ -30,8 +30,7 @@ pboy daemon --host 127.0.0.1 --port 8080
 # /healthz → channels.running includes "telegram"
 ```
 
-With `PB_DAEMON_URL` set, the same `pboy channel …` commands hit the daemon HTTP API
-(and can start/stop adapters live).
+While the daemon is running on `127.0.0.1:8080`, `pboy channel …` commands automatically connect to the daemon HTTP API (and can start/stop adapters live). For custom ports, pass `--daemon-url http://127.0.0.1:<port>`.
 
 **Env override** (wins over store when the variable is set, including empty):
 
@@ -71,7 +70,6 @@ pboy daemon --host 127.0.0.1 --port 8080
 4. Register a hook for `telegram:message`, then message the bot:
 
 ```bash
-export PB_DAEMON_URL=http://127.0.0.1:8080
 pboy hook register \
   --name tg-echo \
   --topic 'telegram:message' \

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any, NoReturn, TypeVar
 
@@ -17,16 +19,55 @@ from pboy.store.sqlite import SQLiteStore
 
 T = TypeVar("T")
 
+_VALID_INJECT_SOURCES = ("telegram", "slack", "jira", "confluence", "generic")
+_cli_daemon_url: str | None = None
+
+DaemonUrlOption = Annotated[
+    str | None,
+    typer.Option(
+        "--daemon-url",
+        "-u",
+        help="Daemon HTTP base URL (auto-connects to http://127.0.0.1:8080 when running; pass for custom port)",
+    ),
+]
+
 app = typer.Typer(
     name="pboy",
-    help="Zero-Ops Agent Event Orchestrator & Dispatcher",
+    help=(
+        "Zero-Ops Agent Event Orchestrator & Dispatcher.\n\n"
+        "Automatically connects to the local daemon at http://127.0.0.1:8080 when running "
+        "(use --daemon-url / -u for a custom port; falls back to local SQLite when daemon is stopped).\n\n"
+        "Hook subprocesses receive CloudEvent JSON on stdin plus env vars: "
+        "PB_EVENT_ID, PB_SOURCE, and PB_HOOK_NAME."
+    ),
     no_args_is_help=True,
 )
 
-hook_app = typer.Typer(help="Manage event hooks", no_args_is_help=True)
-state_app = typer.Typer(help="Manage and report harness event state", no_args_is_help=True)
-event_app = typer.Typer(help="Manage and inspect CloudEvents", no_args_is_help=True)
-channel_app = typer.Typer(help="Manage inbound channels and secrets", no_args_is_help=True)
+hook_app = typer.Typer(
+    help=(
+        "Manage event hooks (register, list, delete).\n\n"
+        "Supported topics: telegram:message, slack:message, jira:issue.created, "
+        "jira:issue.updated, confluence:page.updated, or wildcards (e.g. telegram:*, *).\n"
+        "Supported filters: .path.to.field == \"value\" or != (invalid filters fail-closed)."
+    ),
+    no_args_is_help=True,
+)
+state_app = typer.Typer(
+    help=(
+        "Manage and report harness event state (defaults to $PB_EVENT_ID inside hooks)."
+    ),
+    no_args_is_help=True,
+)
+event_app = typer.Typer(
+    help=(
+        "Manage, inject, and inspect CloudEvents (get/complete default to $PB_EVENT_ID inside hooks)."
+    ),
+    no_args_is_help=True,
+)
+channel_app = typer.Typer(
+    help="Manage inbound channels (telegram, slack) and encrypted secrets.",
+    no_args_is_help=True,
+)
 
 app.add_typer(hook_app, name="hook")
 app.add_typer(state_app, name="state")
@@ -46,9 +87,16 @@ def main_callback(
         bool | None,
         typer.Option("--version", "-v", help="Show version and exit", callback=version_callback, is_eager=True),
     ] = None,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
     """Pageboy (pboy) — Event Orchestrator & Dispatcher."""
-    pass
+    global _cli_daemon_url
+    _cli_daemon_url = daemon_url.strip() if daemon_url and daemon_url.strip() else None
+
+
+def _active_daemon_url(subcommand_url: str | None = None) -> str | None:
+    """Resolve daemon URL from subcommand ``--daemon-url``, root ``--daemon-url``, or default auto-probe."""
+    return resolve_daemon_url(subcommand_url or _cli_daemon_url)
 
 
 def _run_with_store(coro_fn: Callable[[SQLiteStore], Coroutine[Any, Any, T]]) -> T:
@@ -64,7 +112,19 @@ def _run_with_store(coro_fn: Callable[[SQLiteStore], Coroutine[Any, Any, T]]) ->
     return asyncio.run(_runner())
 
 
-# ── Daemon ───────────────────────────────────────────────────────────────────
+def _resolve_event_id_or_exit(event_id: str | None) -> str:
+    """Resolve explicit event_id or fall back to ``PB_EVENT_ID`` environment variable."""
+    candidate = (event_id or os.environ.get("PB_EVENT_ID", "")).strip()
+    if candidate:
+        return candidate
+    typer.echo(
+        "Event ID is required (pass <event_id> / --event-id or set PB_EVENT_ID).",
+        err=True,
+    )
+    raise typer.Exit(code=1)
+
+
+# ── Daemon / Status ──────────────────────────────────────────────────────────
 @app.command("daemon")
 def daemon_cmd(
     ui: Annotated[bool, typer.Option("--ui", help="Start embedded web dashboard")] = False,
@@ -78,17 +138,50 @@ def daemon_cmd(
     run_daemon(host=host, port=port, db=db, ui=ui)
 
 
-# ── UI ───────────────────────────────────────────────────────────────────────
 @app.command("ui")
 def ui_cmd(
     host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = 8080,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
-    """Launch the daemon with the embedded read-only dashboard (``/ui``)."""
+    """Launch the daemon with the embedded web dashboard (``/ui`` and ``/ui/settings``)."""
     from pboy.daemon.server import run_daemon
 
     run_daemon(host=host, port=port, db=db, ui=True)
+
+
+@app.command("status")
+def status_cmd(
+    daemon_url: DaemonUrlOption = None,
+) -> None:
+    """Inspect daemon health (/healthz) when running, or local SQLite store status."""
+    resolved_url = _active_daemon_url(daemon_url)
+    if resolved_url:
+        try:
+            body = DaemonClient(resolved_url).healthz()
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        body_out = {"mode": "daemon", "daemon_url": resolved_url, **body}
+        typer.echo(json.dumps(body_out, indent=2))
+        return
+
+    async def _run(store: SQLiteStore) -> None:
+        from pboy.channels.registry import ChannelRegistry
+        from pboy.core.config import get_settings
+
+        async def _noop_emit(*_a: Any, **_k: Any) -> None:
+            return None
+
+        reg = ChannelRegistry(emit=_noop_emit, store=store, settings=get_settings())
+        payload = {
+            "mode": "local_sqlite",
+            "daemon_url": None,
+            "db_path": str(store.db_path),
+            "channels": await reg.status(),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+
+    _run_with_store(_run)
 
 
 def _daemon_http_error(exc: httpx.HTTPError) -> NoReturn:
@@ -96,8 +189,8 @@ def _daemon_http_error(exc: httpx.HTTPError) -> NoReturn:
     raise typer.Exit(code=1) from exc
 
 
-def _daemon_client_or_none() -> DaemonClient | None:
-    url = resolve_daemon_url()
+def _daemon_client_or_none(subcommand_url: str | None = None) -> DaemonClient | None:
+    url = _active_daemon_url(subcommand_url)
     if not url:
         return None
     return DaemonClient(url)
@@ -106,18 +199,43 @@ def _daemon_client_or_none() -> DaemonClient | None:
 # ── Hooks ────────────────────────────────────────────────────────────────────
 @hook_app.command("register")
 def hook_register(
-    name: Annotated[str, typer.Option("--name", help="Hook name")],
-    topic: Annotated[str, typer.Option("--topic", help="Event topic or pattern (e.g. jira:issue.created)")],
-    exec_cmd: Annotated[str, typer.Option("--exec", help="Command line to execute on event")],
-    filter_expr: Annotated[str | None, typer.Option("--filter", help="Filter expression")] = None,
+    name: Annotated[str, typer.Option("--name", help="Unique hook name")],
+    topic: Annotated[
+        str,
+        typer.Option(
+            "--topic",
+            help=(
+                "Event topic or wildcard: telegram:message, slack:message, "
+                "jira:issue.created, jira:issue.updated, confluence:page.updated, telegram:*, *"
+            ),
+        ),
+    ],
+    exec_cmd: Annotated[
+        str,
+        typer.Option(
+            "--exec",
+            help=(
+                "Command to spawn (receives CloudEvent JSON on stdin and "
+                "PB_EVENT_ID, PB_SOURCE, PB_HOOK_NAME in env)"
+            ),
+        ),
+    ],
+    filter_expr: Annotated[
+        str | None,
+        typer.Option(
+            "--filter",
+            help='Filter expression: .path.to.field == "value" or != (e.g. .data.summary == "ping")',
+        ),
+    ] = None,
     concurrency: Annotated[
-        int, typer.Option("--concurrency", "-c", help="Max concurrency", min=1)
+        int, typer.Option("--concurrency", "-c", help="Max concurrent executions", min=1)
     ] = 1,
     timeout: Annotated[
-        int, typer.Option("--timeout", "-t", help="Timeout in seconds", min=1)
+        int, typer.Option("--timeout", "-t", help="Timeout in integer seconds (e.g. 30)", min=1)
     ] = 180,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Register a new event hook (daemon HTTP when PB_DAEMON_URL is set)."""
+    """Register a new event hook (via daemon HTTP when running, else local SQLite)."""
     try:
         hook_data = HookCreate(
             name=name,
@@ -131,7 +249,7 @@ def hook_register(
         typer.echo(f"Invalid hook: {exc.errors()[0]['msg']}", err=True)
         raise typer.Exit(code=1) from exc
 
-    client = _daemon_client_or_none()
+    client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
             hook = client.create_hook(hook_data)
@@ -148,9 +266,11 @@ def hook_register(
 
 
 @hook_app.command("list")
-def hook_list() -> None:
-    """List all registered hooks (daemon HTTP when PB_DAEMON_URL is set)."""
-    client = _daemon_client_or_none()
+def hook_list(
+    daemon_url: DaemonUrlOption = None,
+) -> None:
+    """List all registered hooks."""
+    client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
             hooks = client.list_hooks()
@@ -177,9 +297,10 @@ def hook_list() -> None:
 @hook_app.command("delete")
 def hook_delete(
     name: Annotated[str, typer.Argument(help="Hook name to delete")],
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Delete a hook by name (daemon HTTP when PB_DAEMON_URL is set)."""
-    client = _daemon_client_or_none()
+    """Delete a hook by name."""
+    client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
             deleted = client.delete_hook(name)
@@ -204,79 +325,170 @@ def hook_delete(
 # ── State ────────────────────────────────────────────────────────────────────
 @state_app.command("put")
 def state_put(
-    event_id: Annotated[str, typer.Option("--event-id", help="CloudEvent ID")],
     status: Annotated[str, typer.Option("--status", help="Execution status (e.g. running, completed)")],
+    event_id: Annotated[
+        str | None,
+        typer.Option("--event-id", help="CloudEvent ID (defaults to $PB_EVENT_ID)"),
+    ] = None,
     progress: Annotated[
         int, typer.Option("--progress", help="Progress percentage (0-100)", min=0, max=100)
     ] = 0,
     broadcast: Annotated[
         bool, typer.Option("--broadcast", help="Broadcast status change (not yet implemented)")
     ] = False,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Report harness execution state for an event.
-
-    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
-    """
+    """Report harness execution state for an event (defaults ``--event-id`` to ``$PB_EVENT_ID``)."""
+    resolved_id = _resolve_event_id_or_exit(event_id)
     payload = {"status": status, "progress": progress, "broadcast": broadcast}
-    daemon_url = resolve_daemon_url()
-    if daemon_url:
+    resolved_url = _active_daemon_url(daemon_url)
+    if resolved_url:
         try:
-            DaemonClient(daemon_url).put_state(event_id, "execution", payload)
+            DaemonClient(resolved_url).put_state(resolved_id, "execution", payload)
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
-        typer.echo(f"State updated for event '{event_id}': status={status}, progress={progress}%")
+        typer.echo(f"State updated for event '{resolved_id}': status={status}, progress={progress}%")
         return
 
     async def _run(store: SQLiteStore) -> None:
-        await store.put_state(event_id, "execution", payload)
-        typer.echo(f"State updated for event '{event_id}': status={status}, progress={progress}%")
+        await store.put_state(resolved_id, "execution", payload)
+        typer.echo(f"State updated for event '{resolved_id}': status={status}, progress={progress}%")
 
     _run_with_store(_run)
 
 
 @state_app.command("get")
 def state_get(
-    event_id: Annotated[str, typer.Argument(help="CloudEvent ID")],
+    event_id: Annotated[
+        str | None,
+        typer.Argument(help="CloudEvent ID (defaults to $PB_EVENT_ID)"),
+    ] = None,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Get harness execution state for an event.
-
-    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
-    """
-    daemon_url = resolve_daemon_url()
-    if daemon_url:
+    """Get harness execution state JSON for an event."""
+    resolved_id = _resolve_event_id_or_exit(event_id)
+    resolved_url = _active_daemon_url(daemon_url)
+    if resolved_url:
         try:
-            st = DaemonClient(daemon_url).get_state(event_id, "execution")
+            st = DaemonClient(resolved_url).get_state(resolved_id, "execution")
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
         if st is None:
-            typer.echo(f"No state found for event '{event_id}'.", err=True)
+            typer.echo(f"No state found for event '{resolved_id}'.", err=True)
         else:
-            typer.echo(str(st))
+            typer.echo(json.dumps(st))
         return
 
     async def _run(store: SQLiteStore) -> None:
-        st = await store.get_state(event_id, "execution")
+        st = await store.get_state(resolved_id, "execution")
         if st is None:
-            typer.echo(f"No state found for event '{event_id}'.", err=True)
+            typer.echo(f"No state found for event '{resolved_id}'.", err=True)
         else:
-            typer.echo(str(st))
+            typer.echo(json.dumps(st))
 
     _run_with_store(_run)
 
 
 # ── Event ────────────────────────────────────────────────────────────────────
+@event_app.command("inject")
+def event_inject(
+    source: Annotated[
+        str,
+        typer.Option(
+            "--source",
+            "-s",
+            help="Event source: telegram | slack | jira | confluence | generic",
+        ),
+    ],
+    payload: Annotated[
+        str,
+        typer.Option(
+            "--payload",
+            "-p",
+            help=(
+                'Raw JSON object string for the platform (e.g. \'{"message":{"chat":{"id":1},"text":"hi"}}\')'
+            ),
+        ),
+    ] = "{}",
+    dispatch: Annotated[
+        bool,
+        typer.Option(
+            "--dispatch/--no-dispatch",
+            help="Whether to match and run hooks immediately (use --no-dispatch for dry-run matching)",
+        ),
+    ] = True,
+    daemon_url: DaemonUrlOption = None,
+) -> None:
+    """Inject a raw platform event into the Engine (for testing hooks or manual triggers).
+
+    Note: bypasses inbound channel allowlists (e.g. ``telegram.allowlist``).
+    """
+    src = source.strip().lower()
+    if src not in _VALID_INJECT_SOURCES:
+        typer.echo(
+            f"Invalid --source '{source}'. Must be one of: {', '.join(_VALID_INJECT_SOURCES)}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        parsed_payload = json.loads(payload)
+    except ValueError as exc:
+        typer.echo(f"Invalid --payload JSON: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not isinstance(parsed_payload, dict):
+        typer.echo("Invalid --payload: root value must be a JSON object.", err=True)
+        raise typer.Exit(code=1)
+
+    resolved_url = _active_daemon_url(daemon_url)
+    if resolved_url:
+        try:
+            body = DaemonClient(resolved_url).inject_event(
+                src, parsed_payload, dispatch=dispatch
+            )
+        except httpx.HTTPError as exc:
+            _daemon_http_error(exc)
+        typer.echo(json.dumps(body, indent=2))
+        return
+
+    async def _run(store: SQLiteStore) -> None:
+        from pboy.core.engine import Engine
+
+        engine = Engine(store=store)
+        event, matched, executions = await engine.process_event(
+            parsed_payload, src, dispatch=dispatch
+        )
+        result = {
+            "event_id": event.id,
+            "source": event.source,
+            "type": event.type,
+            "matched_hooks": [h.name for h in matched],
+            "executions": [
+                {
+                    "execution_id": ex.execution_id,
+                    "hook_name": ex.hook_name,
+                    "status": ex.status,
+                    "exit_code": ex.exit_code,
+                    "stdout": ex.stdout,
+                    "stderr": ex.stderr,
+                }
+                for ex in executions
+            ],
+        }
+        typer.echo(json.dumps(result, indent=2))
+
+    _run_with_store(_run)
+
+
 @event_app.command("list")
 def event_list(
     limit: Annotated[int, typer.Option("--limit", "-n", help="Number of events to list")] = 20,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """List recently recorded events.
-
-    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
-    """
-    daemon_url = resolve_daemon_url()
-    if daemon_url:
+    """List recently recorded events."""
+    resolved_url = _active_daemon_url(daemon_url)
+    if resolved_url:
         try:
-            events = DaemonClient(daemon_url).list_events(limit=limit)
+            events = DaemonClient(resolved_url).list_events(limit=limit)
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
         if not events:
@@ -299,8 +511,6 @@ def event_list(
 
 def _echo_event_detail(detail: dict[str, Any], *, verbose: bool) -> None:
     """Print event detail JSON; omit execution stdout/stderr unless ``verbose``."""
-    import json
-
     payload = detail
     if not verbose:
         payload = dict(detail)
@@ -319,24 +529,26 @@ def _echo_event_detail(detail: dict[str, Any], *, verbose: bool) -> None:
 
 @event_app.command("get")
 def event_get(
-    event_id: Annotated[str, typer.Argument(help="Event ID")],
+    event_id: Annotated[
+        str | None,
+        typer.Argument(help="Event ID (defaults to $PB_EVENT_ID)"),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option("--verbose", "-v", help="Include execution stdout/stderr"),
     ] = False,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Inspect a CloudEvent by ID (includes completion / execution state).
-
-    Uses daemon HTTP API when ``PB_DAEMON_URL`` is set; otherwise local SQLite.
-    """
-    daemon_url = resolve_daemon_url()
-    if daemon_url:
+    """Inspect a CloudEvent by ID as JSON (includes completion / execution state)."""
+    resolved_id = _resolve_event_id_or_exit(event_id)
+    resolved_url = _active_daemon_url(daemon_url)
+    if resolved_url:
         try:
-            detail = DaemonClient(daemon_url).get_event_detail(event_id)
+            detail = DaemonClient(resolved_url).get_event_detail(resolved_id)
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
         if not detail:
-            typer.echo(f"Event '{event_id}' not found.", err=True)
+            typer.echo(f"Event '{resolved_id}' not found.", err=True)
             raise typer.Exit(code=1)
         _echo_event_detail(detail, verbose=verbose)
         return
@@ -345,9 +557,9 @@ def event_get(
         from pboy.core.engine import Engine
 
         engine = Engine(store=store)
-        detail = await engine.event_detail(event_id)
+        detail = await engine.event_detail(resolved_id)
         if not detail:
-            typer.echo(f"Event '{event_id}' not found.", err=True)
+            typer.echo(f"Event '{resolved_id}' not found.", err=True)
             raise typer.Exit(code=1)
         _echo_event_detail(detail, verbose=verbose)
 
@@ -356,8 +568,11 @@ def event_get(
 
 @event_app.command("complete")
 def event_complete(
-    event_id: Annotated[str, typer.Argument(help="Event ID")],
-    summary: Annotated[str, typer.Option("--summary", help="Resolution summary")] = "Completed",
+    event_id: Annotated[
+        str | None,
+        typer.Argument(help="Event ID (defaults to $PB_EVENT_ID)"),
+    ] = None,
+    summary: Annotated[str, typer.Option("--summary", help="Resolution summary text")] = "Completed",
     sync: Annotated[
         str | None,
         typer.Option("--sync", help="Outbound sync targets (comma-separated, e.g. telegram)"),
@@ -377,13 +592,15 @@ def event_complete(
             help="Reply file type: photo|document|audio|video (default document)",
         ),
     ] = None,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Mark an event processing as complete (optional outbound sync)."""
+    """Mark an event processing as complete (optional outbound reply via ``--sync telegram``)."""
     from pathlib import Path
 
     from pboy.models.completion import parse_sync_targets
     from pboy.models.reply_file import ReplyFile, parse_reply_file_type
 
+    resolved_id = _resolve_event_id_or_exit(event_id)
     targets = parse_sync_targets(sync)
     if file_type and not (file_path or file_id):
         typer.echo("--file-type requires --file-path or --file-id.", err=True)
@@ -425,11 +642,11 @@ def event_complete(
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
 
-    daemon_url = resolve_daemon_url()
-    if daemon_url:
+    resolved_url = _active_daemon_url(daemon_url)
+    if resolved_url:
         try:
-            body = DaemonClient(daemon_url).complete_event(
-                event_id,
+            body = DaemonClient(resolved_url).complete_event(
+                resolved_id,
                 summary=summary,
                 sync=targets,
                 file_path=resolved_path,
@@ -440,7 +657,7 @@ def event_complete(
             _daemon_http_error(exc)
         already = body.get("already_completed")
         typer.echo(
-            f"Event '{event_id}' completed"
+            f"Event '{resolved_id}' completed"
             f"{' (already completed)' if already else ''}."
             f" summary={body.get('summary')!r}"
         )
@@ -458,13 +675,13 @@ def event_complete(
         engine = Engine(store=store)
         try:
             completion, already = await engine.complete_event(
-                event_id, summary=summary, sync=targets, reply_file=reply_file
+                resolved_id, summary=summary, sync=targets, reply_file=reply_file
             )
         except KeyError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(code=1) from exc
         typer.echo(
-            f"Event '{event_id}' completed"
+            f"Event '{resolved_id}' completed"
             f"{' (already completed)' if already else ''}."
             f" summary={completion.summary!r}"
         )
@@ -479,9 +696,11 @@ def event_complete(
 
 # ── Channel ──────────────────────────────────────────────────────────────────
 @channel_app.command("list")
-def channel_list() -> None:
+def channel_list(
+    daemon_url: DaemonUrlOption = None,
+) -> None:
     """List known channels, enablement, running state, and secret presence."""
-    client = _daemon_client_or_none()
+    client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
             body = client.list_channels()
@@ -523,10 +742,11 @@ def channel_list() -> None:
 
 @channel_app.command("enable")
 def channel_enable(
-    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram)")],
+    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram, slack)")],
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
     """Enable a channel (persisted in store unless PB_CHANNELS_ENABLED overrides)."""
-    client = _daemon_client_or_none()
+    client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
             body = client.enable_channel(name)
@@ -577,10 +797,11 @@ def channel_enable(
 
 @channel_app.command("disable")
 def channel_disable(
-    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram)")],
+    name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram, slack)")],
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
     """Disable a channel in the persisted enable list."""
-    client = _daemon_client_or_none()
+    client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
             body = client.disable_channel(name)
@@ -624,6 +845,7 @@ def channel_set_secret(
             help="Secret sub-key (slack: bot_token | app_token; telegram: bot_token | allowlist)",
         ),
     ] = None,
+    daemon_url: DaemonUrlOption = None,
 ) -> None:
     """Store an encrypted channel secret (e.g. telegram bot token; empty clears optional allowlist)."""
     from pboy.channels.config import optional_secret_keys_for_channel, resolve_secret_key
@@ -642,7 +864,7 @@ def channel_set_secret(
         typer.echo("Secret value must not be empty.", err=True)
         raise typer.Exit(code=1)
 
-    client = _daemon_client_or_none()
+    client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
             body = client.set_channel_secret(

@@ -50,15 +50,12 @@ def run_daemon(
     except ValueError as exc:
         logger.error("{}", exc)
         raise SystemExit(1) from exc
-    settings.daemon_url = _public_daemon_url(actual_host, actual_port)
-
+    public_url = _public_daemon_url(actual_host, actual_port)
     app = create_app(db_path=db, enable_ui=ui)
     logger.info(
-        "Starting pboy daemon on http://{}:{} (PB_DAEMON_URL={})",
-        actual_host,
-        actual_port,
-        settings.daemon_url,
+        "Starting pboy daemon on {}",
+        public_url,
     )
     if ui:
-        logger.info("Dashboard: {}/ui", settings.daemon_url)
+        logger.info("Dashboard: {}/ui", public_url)
     uvicorn.run(app, host=actual_host, port=actual_port, log_level=settings.log_level.lower())

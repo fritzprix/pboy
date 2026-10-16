@@ -52,14 +52,14 @@ export PB_DATABASE_URL="$WORK/smoke.db"
 export PB_SECRET_KEY="smoke-secret-key-32bytes-long!!"
 HOST="127.0.0.1"
 PORT="$(pick_port)"
-export PB_DAEMON_URL="http://${HOST}:${PORT}"
+DAEMON_URL="http://${HOST}:${PORT}"
 
-echo "==> starting daemon on $PB_DAEMON_URL (db=$PB_DATABASE_URL)"
+echo "==> starting daemon on $DAEMON_URL (db=$PB_DATABASE_URL)"
 "$PBOY" daemon --host "$HOST" --port "$PORT" --db "$PB_DATABASE_URL" >"$WORK/daemon.log" 2>&1 &
 DAEMON_PID=$!
 
 for _ in $(seq 1 50); do
-  if curl -sf "$PB_DAEMON_URL/healthz" >/dev/null; then
+  if curl -sf "$DAEMON_URL/healthz" >/dev/null; then
     break
   fi
   if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
@@ -69,21 +69,22 @@ for _ in $(seq 1 50); do
   fi
   sleep 0.1
 done
-curl -sf "$PB_DAEMON_URL/healthz" | grep -q '"status":"ok"'
+curl -sf "$DAEMON_URL/healthz" | grep -q '"status":"ok"'
 
 echo "==> register hook via CLI (daemon HTTP)"
-"$PBOY" hook delete smoke-echo >/dev/null 2>&1 || true
+"$PBOY" hook delete smoke-echo --daemon-url "$DAEMON_URL" >/dev/null 2>&1 || true
 "$PBOY" hook register \
+  --daemon-url "$DAEMON_URL" \
   --name smoke-echo \
   --topic 'jira:issue.created' \
   --exec 'echo smoke-ok' \
   --timeout 30
 
-HOOKS="$("$PBOY" hook list)"
+HOOKS="$("$PBOY" hook list --daemon-url "$DAEMON_URL")"
 echo "$HOOKS" | grep -q smoke-echo
 
 echo "==> inject event"
-INJECT="$(curl -sf -X POST "$PB_DAEMON_URL/v1/events" \
+INJECT="$(curl -sf -X POST "$DAEMON_URL/v1/events" \
   -H 'content-type: application/json' \
   -d '{
     "source": "jira",
@@ -112,6 +113,6 @@ stdout = (body.get("executions") or [{}])[0].get("stdout") or ""
 assert "smoke-ok" in stdout, body
 print(body["event_id"])
 ')"
-"$PBOY" event list | grep -q "$EVENT_ID"
+"$PBOY" event list --daemon-url "$DAEMON_URL" | grep -q "$EVENT_ID"
 
 echo "==> OK — daemon + hook + harness path works (event_id=$EVENT_ID)"

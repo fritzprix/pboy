@@ -57,7 +57,6 @@ Hooks may receive:
 | Variable | When |
 |----------|------|
 | `PB_EVENT_ID`, `PB_SOURCE`, `PB_HOOK_NAME` | Always |
-| `PB_DAEMON_URL` | When the daemon configured a public URL |
 | `PB_LEASE_TOKEN` | When a lease was issued |
 
 They never receive a master auth secret. Callbacks to the daemon still require
@@ -66,7 +65,7 @@ loopback + local `Host` like any other client.
 ## Operator expectations
 
 - Run on the same machine as the browser/CLI (`uvx pboy ui`).
-- Point CLI at the daemon with `PB_DAEMON_URL=http://127.0.0.1:8080` when needed.
+- CLI automatically connects to `http://127.0.0.1:8080` when the daemon is running (pass `--daemon-url` if using a custom port).
 - Do not publish the port, and do not reverse-proxy it.
 
 ## Production security checklist
@@ -85,8 +84,8 @@ Operator-facing checklist for a **local** Alpha install. There is **no**
 | Channel tokens | Store via UI/CLI/env; never commit tokens. Env overrides store when non-empty (see operator guide). |
 | Telegram allowlist | For any non-toy bot, set the allowlist in `/ui/settings` (6-digit pairing, or the allowlist field). When empty, **any** Telegram chat that messages the bot can trigger `telegram:message` hooks. Pair in a direct chat (in groups the pairing reply is visible to members; verification still needs local loopback). |
 | Hooks | Only register `exec` you intend to run; harness runs as the daemon OS user with full local privileges of that account. Do not inline secrets in `hook.exec` command strings (spawn failures surface `hook.exec` and `argv` in execution `stderr`). |
-| CLI split-brain | Set `PB_DAEMON_URL=http://127.0.0.1:<port>` whenever the daemon is up so CLI mutations hit the same DB. |
-| Health | `curl -s http://127.0.0.1:8080/healthz` from the same host only. |
+| CLI split-brain | CLI auto-connects to `http://127.0.0.1:8080` when the daemon is up; pass `--daemon-url http://127.0.0.1:<port>` if running on a custom port so CLI mutations hit the same DB. |
+| Health | `curl -s http://127.0.0.1:8080/healthz` (or `pboy status`) from the same host only. |
 
 ## Outbound / SSRF policy (Telegram)
 

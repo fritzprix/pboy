@@ -22,7 +22,6 @@ def test_channel_cli_roundtrip_local_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("PB_CHANNELS_ENABLED", raising=False)
-    monkeypatch.delenv("PB_DAEMON_URL", raising=False)
     db = tmp_path / "cli-ch.db"
     monkeypatch.setenv("PB_DATABASE_URL", str(db))
     monkeypatch.setenv("PB_SECRET_KEY", "cli-channel-secret-key!!")
