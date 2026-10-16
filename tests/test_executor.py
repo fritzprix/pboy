@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Awaitable, Callable
 from unittest.mock import patch
 
 import pytest
 
+import pboy.harness.executor as executor_mod
 from pboy.harness.executor import HarnessExecutor, _split_exec
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook
@@ -18,6 +20,30 @@ def test_split_exec_py_print_roundtrip() -> None:
     argv = _split_exec(py_print("hello"))
     assert argv[-2:] == ["-c", "print('hello')"]
     assert argv[0]
+
+
+def test_posix_shlex_eats_windows_backslashes() -> None:
+    """Regression marker: default shlex (posix=True) collapses ``\\`` escapes (#29)."""
+    assert shlex.split(r"C:\Python312\python.exe script.py") == [
+        "C:Python312python.exe",
+        "script.py",
+    ]
+
+
+def test_split_exec_windows_keeps_backslash_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(executor_mod.os, "name", "nt")
+    assert _split_exec(r"C:\Python312\python.exe script.py") == [
+        r"C:\Python312\python.exe",
+        "script.py",
+    ]
+
+
+def test_split_exec_windows_unwraps_quoted_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(executor_mod.os, "name", "nt")
+    assert _split_exec(r'"C:\Program Files\Python312\python.exe" script.py') == [
+        r"C:\Program Files\Python312\python.exe",
+        "script.py",
+    ]
 
 
 @pytest.fixture
