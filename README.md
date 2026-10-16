@@ -13,13 +13,12 @@ uvx pboy ui
 
 브라우저: [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui)
 
-로컬(`127.0.0.1`)만 쓸 때는 `PB_AUTH_TOKEN` 없이 바로 설정·저장할 수 있습니다.
+로그인 없음 — 이 머신(loopback)에서만 API·UI에 접근할 수 있습니다.
 
 | 경로 | 역할 |
 |------|------|
 | `/ui` | 훅 · 이벤트 · 실행 기록 |
 | `/ui/settings` | Telegram / Slack 토큰 · 채널 on/off |
-| `/ui/login` | `PB_AUTH_TOKEN`을 켠 경우 (리버스 프록시·LAN) |
 
 데이터 기본 위치: DB `~/.local/share/pboy/pboy.db` · 암호화 키 `~/.config/pboy/secret.key`
 
@@ -51,16 +50,7 @@ Slack은 Socket Mode용 **bot 토큰(`xoxb-`)** + **앱 토큰(`xapp-`, `connect
 
 ## 보안 (짧게)
 
-| 상황 | 할 일 |
-|------|------|
-| 기본 로컬만 | 토큰 불필요 |
-| `--host 0.0.0.0` / LAN / 리버스 프록시 | **`PB_AUTH_TOKEN` 필수** (설정 시 루프백 포함 전원 인증) |
-
-```bash
-export PB_AUTH_TOKEN=your-secret
-uvx pboy daemon --host 0.0.0.0 --port 8080 --ui
-# 로그인: http://127.0.0.1:8080/ui/login
-```
+Pageboy는 **local-only**입니다. loopback 바인드만 허용하고, 모든 요청은 같은 머신 + 로컬 `Host`여야 합니다. LAN/`0.0.0.0`은 지원하지 않습니다. **리버스 프록시를 앞에 두지 마세요** (Host를 localhost로 바꾸면 원격 클라이언트가 로컬로 보입니다). 같은 머신의 다른 사용자·프로세스도 데몬에 닿을 수 있습니다. → [`docs/security-contract.md`](docs/security-contract.md)
 
 CLI가 같은 데몬 DB를 쓰려면 `PB_DAEMON_URL=http://127.0.0.1:8080`을 맞추세요. 없으면 CLI가 **별도 로컬 DB**를 써서 split-brain이 납니다.
 
@@ -78,7 +68,6 @@ uvx pboy event complete <id> --summary '...' --sync telegram
 
 | 변수 | 용도 |
 |------|------|
-| `PB_AUTH_TOKEN` | 원격·프록시·비루프백 바인드 인증 |
 | `PB_DAEMON_URL` | CLI → 데몬 HTTP |
 | `PB_TELEGRAM_BOT_TOKEN` / `PB_SLACK_*` | UI 대신 env로 채널 토큰 |
 | `PB_CHANNELS_ENABLED` | 켜진 채널 (설정 시 store enable과 충돌 주의) |

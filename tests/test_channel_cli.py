@@ -79,11 +79,10 @@ async def test_daemon_channel_api_set_secret_and_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("PB_CHANNELS_ENABLED", raising=False)
-    monkeypatch.setenv("PB_AUTH_TOKEN", "ch-api-token")
     import pboy.core.config as config_mod
 
     monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(auth_token="ch-api-token")
+    settings = Settings()
 
     app_api = create_app(
         db_path=tmp_path / "api-ch.db",
@@ -93,20 +92,16 @@ async def test_daemon_channel_api_set_secret_and_list(
     transport = ASGITransport(app=app_api)
     async with (
         app_api.router.lifespan_context(app_api),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         put = await client.put(
             "/v1/channels/telegram/secret",
             json={"value": "api-bot-token"},
-            headers={"X-PB-Token": "ch-api-token"},
         )
         assert put.status_code == 200
         assert put.json()["key"] == TELEGRAM_SECRET_KEY
 
-        en = await client.post(
-            "/v1/channels/fake/enable",
-            headers={"X-PB-Token": "ch-api-token"},
-        )
+        en = await client.post("/v1/channels/fake/enable")
         assert en.status_code == 200
         assert en.json()["running"] is True
 
@@ -118,9 +113,6 @@ async def test_daemon_channel_api_set_secret_and_list(
         assert by_name["fake"]["running"] is True
         assert by_name["telegram"]["has_secret"] is True
 
-        dis = await client.post(
-            "/v1/channels/fake/disable",
-            headers={"X-PB-Token": "ch-api-token"},
-        )
+        dis = await client.post("/v1/channels/fake/disable")
         assert dis.status_code == 200
         assert dis.json()["running"] is False

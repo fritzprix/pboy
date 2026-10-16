@@ -68,7 +68,7 @@ def _run_with_store(coro_fn: Callable[[SQLiteStore], Coroutine[Any, Any, T]]) ->
 @app.command("daemon")
 def daemon_cmd(
     ui: Annotated[bool, typer.Option("--ui", help="Start embedded web dashboard")] = False,
-    host: Annotated[str, typer.Option("--host", help="Bind host")] = "127.0.0.1",
+    host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = 8080,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
@@ -81,7 +81,7 @@ def daemon_cmd(
 # ── UI ───────────────────────────────────────────────────────────────────────
 @app.command("ui")
 def ui_cmd(
-    host: Annotated[str, typer.Option("--host", help="Bind host")] = "127.0.0.1",
+    host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = 8080,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:

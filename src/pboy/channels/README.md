@@ -26,7 +26,6 @@ pboy channel enable telegram
 pboy channel list
 # • telegram [enabled, stopped, secret=yes]   # until daemon starts it
 
-export PB_AUTH_TOKEN=dev-secret
 pboy daemon --host 127.0.0.1 --port 8080
 # /healthz → channels.running includes "telegram"
 ```
@@ -56,7 +55,6 @@ Or use env: `PB_TELEGRAM_BOT_TOKEN` (overrides store when set).
 3. Start the daemon (same DB as the CLI):
 
 ```bash
-export PB_AUTH_TOKEN=dev-secret
 pboy daemon --host 127.0.0.1 --port 8080
 ```
 

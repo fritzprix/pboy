@@ -17,12 +17,6 @@ def resolve_daemon_url() -> str | None:
     return raw or None
 
 
-def resolve_auth_token() -> str | None:
-    """Return PB_AUTH_TOKEN when set."""
-    raw = os.environ.get("PB_AUTH_TOKEN", "").strip()
-    return raw or None
-
-
 class DaemonClient:
     """Thin sync client for daemon HTTP APIs."""
 
@@ -31,22 +25,14 @@ class DaemonClient:
         base_url: str,
         *,
         timeout: float = 30.0,
-        auth_token: str | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.auth_token = auth_token if auth_token is not None else resolve_auth_token()
         self._client = client
-
-    def _headers(self) -> dict[str, str]:
-        if not self.auth_token:
-            return {}
-        return {"X-PB-Token": self.auth_token}
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         headers = dict(kwargs.pop("headers", {}) or {})
-        headers.update(self._headers())
         url = f"{self.base_url}{path}"
         if self._client is not None:
             return self._client.request(method, path, headers=headers, timeout=self.timeout, **kwargs)

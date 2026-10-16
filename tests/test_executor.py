@@ -200,7 +200,7 @@ async def test_executor_injects_daemon_url_only_when_configured(
     import pboy.core.config as config_mod
     from pboy.core.config import Settings
 
-    cfg = Settings(daemon_url="http://127.0.0.1:9090", auth_token="tok")
+    cfg = Settings(daemon_url="http://127.0.0.1:9090")
     monkeypatch.setattr(config_mod, "_settings", cfg)
 
     executor = HarnessExecutor(store=tmp_store)
@@ -209,7 +209,7 @@ async def test_executor_injects_daemon_url_only_when_configured(
         topic="test:event.created",
         exec=py_c(
             "import os; print(os.environ.get('PB_DAEMON_URL','')); "
-            "print(os.environ.get('PB_AUTH_TOKEN',''))"
+            "print('HAS_AUTH=' + str('PB_AUTH_TOKEN' in os.environ))"
         ),
         timeout=10,
     )
@@ -217,4 +217,4 @@ async def test_executor_injects_daemon_url_only_when_configured(
     assert result.status == "completed"
     assert result.stdout is not None
     assert "http://127.0.0.1:9090" in result.stdout
-    assert "tok" in result.stdout
+    assert "HAS_AUTH=False" in result.stdout

@@ -1,4 +1,4 @@
-"""Tests for daemon-aware CLI client, auth, and live DaemonClient HTTP."""
+"""Tests for daemon-aware CLI client, local-only guard, and live DaemonClient HTTP."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from httpx import ASGITransport, AsyncClient
 from typer.testing import CliRunner
 
 import pboy.core.config as config_mod
-from pboy.cli.daemon_client import DaemonClient, resolve_auth_token, resolve_daemon_url
-from pboy.core.config import Settings, get_settings
+from pboy.cli.daemon_client import DaemonClient, resolve_daemon_url
+from pboy.core.config import Settings
 from pboy.daemon.app import create_app
 from pboy.daemon.server import _public_daemon_url
 from pboy.models.cloudevent import CloudEvent
@@ -32,7 +32,6 @@ cli_main = importlib.import_module("pboy.cli.main")
 class DaemonHarness:
     client: AsyncClient
     app: FastAPI
-
 
 
 @pytest.fixture
@@ -49,9 +48,9 @@ def test_resolve_daemon_url_requires_explicit_env(monkeypatch: pytest.MonkeyPatc
     assert resolve_daemon_url() == "http://127.0.0.1:9999"
 
 
-def test_public_daemon_url_maps_wildcard_bind() -> None:
-    assert _public_daemon_url("0.0.0.0", 9090) == "http://127.0.0.1:9090"
+def test_public_daemon_url_for_loopback_bind() -> None:
     assert _public_daemon_url("127.0.0.1", 8080) == "http://127.0.0.1:8080"
+    assert _public_daemon_url("::1", 8080) == "http://[::1]:8080"
 
 
 def test_cli_package_does_not_shadow_main_module() -> None:
@@ -70,7 +69,7 @@ async def daemon(tmp_path: Path) -> AsyncGenerator[DaemonHarness, None]:
     await application.state.engine.start()
     transport = ASGITransport(app=application)
     try:
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
             yield DaemonHarness(client=client, app=application)
     finally:
         await application.state.engine.stop()
@@ -114,36 +113,28 @@ async def test_daemon_api_state_events_hooks(daemon: DaemonHarness) -> None:
 
 
 @pytest.mark.asyncio
-async def test_mutating_requires_token_when_configured(
+async def test_remote_peer_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reset_settings: None
 ) -> None:
-    monkeypatch.setenv("PB_AUTH_TOKEN", "secret-token")
     monkeypatch.setattr(config_mod, "_settings", None)
-    application = create_app(db_path=tmp_path / "auth.db", secret_key="k")
+    application = create_app(db_path=tmp_path / "remote.db", secret_key="k")
     await application.state.engine.start()
     try:
-        # Token configured → even loopback must present it (safe behind reverse proxies).
         loopback = ASGITransport(app=application)
-        async with AsyncClient(transport=loopback, base_url="http://test") as client:
-            denied_local = await client.post(
+        async with AsyncClient(transport=loopback, base_url="http://127.0.0.1") as client:
+            ok_local = await client.post(
                 "/v1/hooks",
                 json={"name": "local", "topic": "jira:issue.created", "exec": "echo 1"},
             )
-            assert denied_local.status_code == 401
+            assert ok_local.status_code == 200
 
         remote = ASGITransport(app=application, client=("203.0.113.10", 50000))
-        async with AsyncClient(transport=remote, base_url="http://test") as client:
+        async with AsyncClient(transport=remote, base_url="http://127.0.0.1") as client:
             denied = await client.post(
                 "/v1/hooks",
                 json={"name": "x", "topic": "jira:issue.created", "exec": "echo 1"},
             )
-            assert denied.status_code == 401
-            ok = await client.post(
-                "/v1/hooks",
-                headers={"X-PB-Token": "secret-token"},
-                json={"name": "x", "topic": "jira:issue.created", "exec": "echo 1"},
-            )
-            assert ok.status_code == 200
+            assert denied.status_code == 403
     finally:
         await application.state.engine.stop()
 
@@ -152,8 +143,7 @@ async def test_mutating_requires_token_when_configured(
 async def test_local_mode_rejects_non_local_host_header(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reset_settings: None
 ) -> None:
-    """Unauthenticated local mode must reject DNS-rebinding Host values."""
-    monkeypatch.delenv("PB_AUTH_TOKEN", raising=False)
+    """Local-only guard must reject DNS-rebinding Host values."""
     monkeypatch.setattr(config_mod, "_settings", None)
     application = create_app(db_path=tmp_path / "rebind.db", secret_key="k")
     await application.state.engine.start()
@@ -165,6 +155,16 @@ async def test_local_mode_rejects_non_local_host_header(
                 json={"name": "x", "topic": "jira:issue.created", "exec": "echo 1"},
             )
             assert denied.status_code == 403
+
+        # ``127.`` prefix alone must not count as loopback (classic rebinding name).
+        async with AsyncClient(
+            transport=loopback, base_url="http://127.evil.com"
+        ) as client:
+            denied_prefix = await client.post(
+                "/v1/hooks",
+                json={"name": "y", "topic": "jira:issue.created", "exec": "echo 1"},
+            )
+            assert denied_prefix.status_code == 403
 
         async with AsyncClient(transport=loopback, base_url="http://127.0.0.1") as client:
             ok = await client.post(
@@ -181,10 +181,7 @@ def live_daemon(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reset_settings: None
 ) -> Generator[str, None, None]:
     """Real HTTP daemon on an ephemeral port for DaemonClient coverage."""
-    monkeypatch.setenv("PB_AUTH_TOKEN", "live-token")
     monkeypatch.setattr(config_mod, "_settings", None)
-    settings = get_settings()
-    assert settings.auth_token == "live-token"
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -210,7 +207,7 @@ def live_daemon(
 
 
 def test_real_daemon_client_against_live_http(live_daemon: str) -> None:
-    client = DaemonClient(live_daemon, auth_token="live-token")
+    client = DaemonClient(live_daemon)
     hook = client.create_hook(
         HookCreate(name="live-hook", topic="jira:issue.created", exec="echo ok", timeout=30)
     )
@@ -303,9 +300,3 @@ def test_cli_state_uses_sqlite_without_daemon_env(
     assert get_res.exit_code == 0
     assert "running" in get_res.output
 
-
-def test_resolve_auth_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("PB_AUTH_TOKEN", raising=False)
-    assert resolve_auth_token() is None
-    monkeypatch.setenv("PB_AUTH_TOKEN", " abc ")
-    assert resolve_auth_token() == "abc"

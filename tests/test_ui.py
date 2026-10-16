@@ -9,7 +9,6 @@ from httpx import ASGITransport, AsyncClient
 from typer.testing import CliRunner
 
 from pboy.cli.main import app
-from pboy.core.config import Settings
 from pboy.core.engine import Engine
 from pboy.daemon.app import create_app
 from pboy.models.execution import ExecutionData
@@ -26,7 +25,7 @@ async def test_ui_disabled_by_default(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         res = await client.get("/ui")
         assert res.status_code == 404
@@ -42,7 +41,7 @@ async def test_ui_empty_states(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         dash = await client.get("/ui")
         assert dash.status_code == 200
@@ -65,7 +64,7 @@ async def test_ui_dashboard_and_partials(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         eng: Engine = application.state.engine
         await eng.store.create_hook(
@@ -150,7 +149,7 @@ async def test_ui_escapes_html_in_hook_exec(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         eng: Engine = application.state.engine
         await eng.store.create_hook(
@@ -167,36 +166,19 @@ async def test_ui_escapes_html_in_hook_exec(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ui_non_loopback_requires_token(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import pboy.core.config as config_mod
-
-    monkeypatch.setenv("PB_AUTH_TOKEN", "ui-secret")
-    monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(auth_token="ui-secret")
-
+async def test_ui_remote_peer_rejected(tmp_path: Path) -> None:
     application = create_app(
-        db_path=tmp_path / "ui-auth.db",
-        secret_key="ui-auth-key",
-        settings=settings,
+        db_path=tmp_path / "ui-remote.db",
+        secret_key="ui-remote-key",
         enable_ui=True,
     )
     remote = ASGITransport(app=application, client=("203.0.113.10", 50000))
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=remote, base_url="http://test") as client,
+        AsyncClient(transport=remote, base_url="http://127.0.0.1") as client,
     ):
         denied = await client.get("/ui")
-        assert denied.status_code == 401
-
-        ok_header = await client.get("/ui", headers={"X-PB-Token": "ui-secret"})
-        assert ok_header.status_code == 200
-        assert "Pageboy" in ok_header.text
-
-        ok_query = await client.get("/ui", params={"token": "ui-secret"})
-        assert ok_query.status_code == 200
-        assert 'hx-headers=\'{"X-PB-Token": "ui-secret"}\'' in ok_query.text
+        assert denied.status_code == 403
 
 
 def test_cli_ui_help(cli_runner: CliRunner) -> None:
@@ -243,7 +225,7 @@ async def test_ui_settings_guides_and_tooltips(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         page = await client.get("/ui/settings")
         assert page.status_code == 200
@@ -270,7 +252,7 @@ async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> No
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         save = await client.post(
             "/ui/settings/channels/telegram/secret",
@@ -300,7 +282,7 @@ async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_ui_loopback_mutation_free_when_auth_unset(tmp_path: Path) -> None:
+async def test_ui_loopback_mutation_allowed(tmp_path: Path) -> None:
     application = create_app(
         db_path=tmp_path / "ui-local.db",
         secret_key="ui-local-key",
@@ -322,81 +304,7 @@ async def test_ui_loopback_mutation_free_when_auth_unset(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_ui_login_cookie_required_for_mutation_when_auth_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import pboy.core.config as config_mod
-
-    monkeypatch.setenv("PB_AUTH_TOKEN", "ui-form-secret")
-    monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(auth_token="ui-form-secret")
-
-    application = create_app(
-        db_path=tmp_path / "ui-login.db",
-        secret_key="ui-login-key",
-        settings=settings,
-        enable_ui=True,
-    )
-    # Loopback peer still needs login when token is configured (proxy-safe).
-    transport = ASGITransport(app=application)
-    async with (
-        application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
-    ):
-        denied_page = await client.get("/ui")
-        assert denied_page.status_code == 401
-
-        denied = await client.post(
-            "/ui/settings/channels/telegram/secret",
-            data={"secret_name": "bot_token", "value": "should-fail"},
-            follow_redirects=False,
-        )
-        assert denied.status_code == 401
-
-        bad = await client.post(
-            "/ui/login",
-            data={"password": "wrong"},
-            follow_redirects=False,
-        )
-        assert bad.status_code == 303
-        assert "error=1" in bad.headers["location"]
-
-        ok = await client.post(
-            "/ui/login",
-            data={"password": "ui-form-secret"},
-            follow_redirects=False,
-        )
-        assert ok.status_code == 303
-        assert "pb_ui_session" in ok.headers.get("set-cookie", "")
-        session = ok.cookies["pb_ui_session"]
-        assert session != "ui-form-secret"
-        assert "." in session
-
-        client.cookies.set("pb_ui_session", session)
-        dash = await client.get("/ui")
-        assert dash.status_code == 200
-        saved = await client.post(
-            "/ui/settings/harness-secret",
-            data={"key": "jira.api_token", "value": "ATATT-test"},
-            follow_redirects=False,
-        )
-        assert saved.status_code == 303
-        eng: Engine = application.state.engine
-        assert await eng.store.get_secret("jira.api_token") == "ATATT-test"
-
-        logout = await client.post("/ui/logout", follow_redirects=False)
-        assert logout.status_code == 303
-        client.cookies.clear()
-        denied_again = await client.post(
-            "/ui/settings/harness-secret",
-            data={"key": "jira.email", "value": "a@b.c"},
-            follow_redirects=False,
-        )
-        assert denied_again.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_ui_login_page_and_csrf_block(tmp_path: Path) -> None:
+async def test_ui_csrf_block(tmp_path: Path) -> None:
     application = create_app(
         db_path=tmp_path / "ui-csrf.db",
         secret_key="ui-csrf-key",
@@ -405,12 +313,8 @@ async def test_ui_login_page_and_csrf_block(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
-        login = await client.get("/ui/login")
-        assert login.status_code == 200
-        assert "PB_AUTH_TOKEN" in login.text
-
         blocked = await client.post(
             "/ui/settings/channels/telegram/secret",
             data={"secret_name": "bot_token", "value": "csrf-attempt"},
@@ -438,7 +342,7 @@ async def test_ui_disable_channel_and_harness_errors(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         await client.post(
             "/ui/settings/channels/telegram/secret",
@@ -467,12 +371,3 @@ async def test_ui_disable_channel_and_harness_errors(tmp_path: Path) -> None:
         assert unknown.status_code == 303
         assert "err=" in unknown.headers["location"]
 
-
-def test_mint_and_verify_ui_session() -> None:
-    from pboy.daemon.auth import mint_ui_session, verify_ui_session
-
-    token = "s3cret"
-    cookie = mint_ui_session(token)
-    assert verify_ui_session(cookie, token) is True
-    assert verify_ui_session(cookie, "other") is False
-    assert verify_ui_session("not-a-cookie", token) is False

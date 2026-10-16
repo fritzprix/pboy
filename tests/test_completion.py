@@ -167,11 +167,10 @@ async def test_daemon_complete_and_get_detail(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PB_AUTH_TOKEN", "c-token")
     import pboy.core.config as config_mod
 
     monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(auth_token="c-token", telegram_bot_token="tok")
+    settings = Settings(telegram_bot_token="tok")
     app_api = create_app(
         db_path=tmp_path / "d-complete.db",
         secret_key="d-complete-key",
@@ -181,13 +180,12 @@ async def test_daemon_complete_and_get_detail(
     transport = ASGITransport(app=app_api)
     async with (
         app_api.router.lifespan_context(app_api),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         event = await _seed_telegram_event(eng)
         res = await client.post(
             f"/v1/events/{event.id}/complete",
             json={"summary": "Done via API", "sync": []},
-            headers={"X-PB-Token": "c-token"},
         )
         assert res.status_code == 200
         body = res.json()
@@ -197,7 +195,6 @@ async def test_daemon_complete_and_get_detail(
         again = await client.post(
             f"/v1/events/{event.id}/complete",
             json={"summary": "other", "sync": []},
-            headers={"X-PB-Token": "c-token"},
         )
         assert again.status_code == 200
         assert again.json()["already_completed"] is True
@@ -320,59 +317,43 @@ async def test_telegram_outbound_uses_store_secret(engine: Engine) -> None:
 
 
 @pytest.mark.asyncio
-async def test_daemon_complete_requires_auth(
+async def test_daemon_complete_rejects_remote_peer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PB_AUTH_TOKEN", "secret-auth")
     import pboy.core.config as config_mod
 
     monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(auth_token="secret-auth")
+    settings = Settings()
     app_api = create_app(
-        db_path=tmp_path / "auth-complete.db",
-        secret_key="auth-complete-key",
+        db_path=tmp_path / "local-complete.db",
+        secret_key="local-complete-key",
         settings=settings,
     )
     eng: Engine = app_api.state.engine
     remote = ASGITransport(app=app_api, client=("203.0.113.10", 50000))
     loopback = ASGITransport(app=app_api)
     async with app_api.router.lifespan_context(app_api):
-        async with AsyncClient(transport=remote, base_url="http://test") as client:
+        async with AsyncClient(transport=remote, base_url="http://127.0.0.1") as client:
             event = await _seed_telegram_event(eng)
             denied = await client.post(
                 f"/v1/events/{event.id}/complete",
                 json={"summary": "nope", "sync": []},
             )
-            assert denied.status_code == 401
+            assert denied.status_code == 403
 
-            missing = await client.post(
-                f"/v1/events/{event.id}/complete",
-                json={"summary": "nope", "sync": []},
-                headers={"X-PB-Token": "wrong"},
-            )
-            assert missing.status_code == 401
-
+        async with AsyncClient(transport=loopback, base_url="http://127.0.0.1") as client:
             not_found = await client.post(
                 "/v1/events/evt_does_not_exist/complete",
                 json={"summary": "x", "sync": []},
-                headers={"X-PB-Token": "secret-auth"},
             )
             assert not_found.status_code == 404
             assert not_found.json()["detail"] == "Event 'evt_does_not_exist' not found"
 
-        # Token set → loopback still requires the header (proxy-safe).
-        async with AsyncClient(transport=loopback, base_url="http://test") as client:
             local_event = await _seed_telegram_event(eng)
-            denied_local = await client.post(
-                f"/v1/events/{local_event.id}/complete",
-                json={"summary": "nope", "sync": []},
-            )
-            assert denied_local.status_code == 401
             local_ok = await client.post(
                 f"/v1/events/{local_event.id}/complete",
-                json={"summary": "with token", "sync": []},
-                headers={"X-PB-Token": "secret-auth"},
+                json={"summary": "local ok", "sync": []},
             )
             assert local_ok.status_code == 200
 
@@ -388,11 +369,10 @@ async def test_cli_event_complete_via_daemon(
 
     import uvicorn
 
-    monkeypatch.setenv("PB_AUTH_TOKEN", "cli-daemon-token")
     import pboy.core.config as config_mod
 
     monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(auth_token="cli-daemon-token")
+    settings = Settings()
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -424,7 +404,6 @@ async def test_cli_event_complete_via_daemon(
         event = await _seed_telegram_event(eng)
 
         monkeypatch.setenv("PB_DAEMON_URL", f"http://127.0.0.1:{port}")
-        monkeypatch.setenv("PB_AUTH_TOKEN", "cli-daemon-token")
         runner = CliRunner()
         res = runner.invoke(
             app,

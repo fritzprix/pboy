@@ -185,27 +185,7 @@ HARNESS_SECRET_FIELDS: Final[list[dict[str, Any]]] = [
 ]
 
 
-AUTH_GUIDE: Final[dict[str, Any]] = {
-    "title": "로컬 대시보드 비밀번호",
-    "blurb": (
-        "다른 PC·네트워크에서 이 화면을 열 때 쓰는 비밀번호입니다. "
-        "데몬을 켤 때 설정한 PB_AUTH_TOKEN 과 같습니다."
-    ),
-    "tooltip": (
-        "외부 서비스에서 받는 값이 아닙니다. 운영자가 정한 문자열입니다. "
-        "터미널에서 export PB_AUTH_TOKEN=... 으로 넣은 그 값과 동일해야 합니다."
-    ),
-    "links": [
-        {
-            "label": "환경 변수 설명 (README)",
-            "url": "https://github.com/fritzprix/pboy#readme",
-        }
-    ],
-}
-
-
 __all__ = [
-    "AUTH_GUIDE",
     "CHANNEL_GUIDES",
     "HARNESS_SECRET_FIELDS",
     "JIRA_INFO",

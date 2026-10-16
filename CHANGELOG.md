@@ -19,6 +19,21 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Breaking
+
+- Remove `PB_AUTH_TOKEN`, UI login (`/ui/login`), and non-loopback bind.
+  The daemon is **local-only**: loopback listen + `LocalOnlyGuard` (peer, Host,
+  mutation CSRF). See [`docs/security-contract.md`](docs/security-contract.md).
+
+### Added
+
+- `LocalOnlyGuard` ASGI middleware applied to every HTTP/WebSocket route
+
+### Fixed
+
+- Host/bind allowlists use `ipaddress` loopback checks (reject `127.evil.com` DNS rebinding)
+- WebSocket handshakes require a matching `Origin`
+
 ## [0.1.0] — 2026-10-14
 
 First publishable Alpha.

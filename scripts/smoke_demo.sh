@@ -48,7 +48,6 @@ pick_port() {
   "$PYTHON" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
 }
 
-export PB_AUTH_TOKEN="${PB_AUTH_TOKEN:-smoke-token}"
 export PB_DATABASE_URL="$WORK/smoke.db"
 export PB_SECRET_KEY="smoke-secret-key-32bytes-long!!"
 HOST="127.0.0.1"
@@ -86,7 +85,6 @@ echo "$HOOKS" | grep -q smoke-echo
 echo "==> inject event"
 INJECT="$(curl -sf -X POST "$PB_DAEMON_URL/v1/events" \
   -H 'content-type: application/json' \
-  -H "X-PB-Token: $PB_AUTH_TOKEN" \
   -d '{
     "source": "jira",
     "dispatch": true,

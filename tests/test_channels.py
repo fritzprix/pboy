@@ -128,7 +128,7 @@ async def test_daemon_lifespan_starts_enabled_fake(
     transport = ASGITransport(app=app)
     async with (
         app.router.lifespan_context(app),
-        AsyncClient(transport=transport, base_url="http://test") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
     ):
         health = await client.get("/healthz")
         assert health.status_code == 200
@@ -171,7 +171,7 @@ async def test_daemon_lifespan_skips_channels_when_disabled(
     async with app.router.lifespan_context(app):
         assert app.state.channel_registry.running == []
         health_transport = ASGITransport(app=app)
-        async with AsyncClient(transport=health_transport, base_url="http://test") as client:
+        async with AsyncClient(transport=health_transport, base_url="http://127.0.0.1") as client:
             body = (await client.get("/healthz")).json()
             assert body["channels"]["running"] == []
             assert body["channels"]["enabled"] == []

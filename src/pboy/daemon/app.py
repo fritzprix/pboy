@@ -7,13 +7,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 
 from pboy.channels.base import ChannelAdapter
 from pboy.channels.registry import ChannelRegistry
 from pboy.core.config import Settings, get_settings
 from pboy.core.engine import Engine
-from pboy.daemon.auth import require_daemon_auth
+from pboy.daemon.guard import LocalOnlyGuard
 from pboy.daemon.schemas import (
     ChannelListResponse,
     ChannelMutationResponse,
@@ -74,6 +74,7 @@ def create_app(
         version="0.1.0",
         lifespan=_lifespan,
     )
+    app.add_middleware(LocalOnlyGuard)
     app.state.engine = engine
     app.state.db_path = str(store.db_path)
     app.state.channel_registry = registry
@@ -92,7 +93,6 @@ def create_app(
     @app.post(
         "/v1/events",
         response_model=EventInjectResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def inject_event(body: EventInjectRequest, request: Request) -> EventInjectResponse:
         eng: Engine = request.app.state.engine
@@ -144,7 +144,6 @@ def create_app(
     @app.post(
         "/v1/events/{event_id}/complete",
         response_model=EventCompleteResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def complete_event(
         event_id: str, body: EventCompleteRequest, request: Request
@@ -174,7 +173,6 @@ def create_app(
     @app.put(
         "/v1/events/{event_id}/state",
         response_model=StatePutResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def put_state(
         event_id: str, body: StatePutRequest, request: Request
@@ -202,7 +200,6 @@ def create_app(
     @app.post(
         "/v1/hooks",
         response_model=Hook,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def create_hook(body: HookCreateRequest, request: Request) -> Hook:
         eng: Engine = request.app.state.engine
@@ -211,7 +208,6 @@ def create_app(
     @app.delete(
         "/v1/hooks/{name}",
         response_model=HookDeleteResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def delete_hook(name: str, request: Request) -> HookDeleteResponse:
         eng: Engine = request.app.state.engine
@@ -233,7 +229,6 @@ def create_app(
     @app.post(
         "/v1/channels/{name}/enable",
         response_model=ChannelMutationResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def enable_channel(name: str, request: Request) -> ChannelMutationResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
@@ -253,7 +248,6 @@ def create_app(
     @app.post(
         "/v1/channels/{name}/disable",
         response_model=ChannelMutationResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def disable_channel(name: str, request: Request) -> ChannelMutationResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
@@ -268,7 +262,6 @@ def create_app(
     @app.put(
         "/v1/secrets/{key:path}",
         response_model=SecretPutResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def put_secret(key: str, body: SecretPutRequest, request: Request) -> SecretPutResponse:
         eng: Engine = request.app.state.engine
@@ -284,7 +277,6 @@ def create_app(
     @app.put(
         "/v1/channels/{name}/secret",
         response_model=SecretPutResponse,
-        dependencies=[Depends(require_daemon_auth)],
     )
     async def put_channel_secret(
         name: str, body: SecretPutRequest, request: Request

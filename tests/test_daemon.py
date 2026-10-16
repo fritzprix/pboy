@@ -29,7 +29,7 @@ async def daemon(tmp_path: Path) -> AsyncGenerator[DaemonHarness, None]:
     await app.state.engine.start()
     transport = ASGITransport(app=app)
     try:
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(transport=transport, base_url="http://127.0.0.1") as client:
             yield DaemonHarness(client=client, app=app)
     finally:
         await app.state.engine.stop()
@@ -102,8 +102,9 @@ async def test_inject_event_invalid_source(daemon: DaemonHarness) -> None:
     assert res.status_code == 422
 
 
-def test_assert_bind_auth_policy_allows_loopback_without_token() -> None:
-    from pboy.daemon.server import assert_bind_auth_policy, is_loopback_bind
+def test_assert_loopback_bind_allows_loopback() -> None:
+    from pboy.daemon.guard import is_loopback_bind
+    from pboy.daemon.server import assert_loopback_bind
 
     assert is_loopback_bind("127.0.0.1")
     assert is_loopback_bind("localhost")
@@ -111,39 +112,163 @@ def test_assert_bind_auth_policy_allows_loopback_without_token() -> None:
     assert is_loopback_bind("127.0.1.1")
     assert not is_loopback_bind("0.0.0.0")
     assert not is_loopback_bind("::")
-    assert_bind_auth_policy("127.0.0.1", "")
-    assert_bind_auth_policy("::1", "")
-    assert_bind_auth_policy("[::1]", "")
-    assert_bind_auth_policy("127.0.1.1", "")
+    assert not is_loopback_bind("127.evil.com")
+    assert_loopback_bind("127.0.0.1")
+    assert_loopback_bind("::1")
+    assert_loopback_bind("[::1]")
+    assert_loopback_bind("127.0.1.1")
 
 
 def test_is_loopback_peer_fail_closed() -> None:
-    from pboy.daemon.auth import _is_loopback
+    from pboy.daemon.guard import is_loopback_peer
 
-    assert _is_loopback("") is False
-    assert _is_loopback("127.0.0.1") is True
-    assert _is_loopback("127.0.1.1") is True
-    assert _is_loopback("203.0.113.10") is False
-
-
-def test_assert_bind_auth_policy_requires_token_for_wildcard() -> None:
-    from pboy.daemon.server import assert_bind_auth_policy
-
-    with pytest.raises(ValueError, match="PB_AUTH_TOKEN"):
-        assert_bind_auth_policy("0.0.0.0", "")
-    with pytest.raises(ValueError, match="PB_AUTH_TOKEN"):
-        assert_bind_auth_policy("::", "  ")
-    assert_bind_auth_policy("0.0.0.0", "secret")
-    assert_bind_auth_policy("192.168.1.10", "secret")
+    assert is_loopback_peer("") is False
+    assert is_loopback_peer("127.0.0.1") is True
+    assert is_loopback_peer("127.0.1.1") is True
+    assert is_loopback_peer("testclient") is True
+    assert is_loopback_peer("203.0.113.10") is False
+    assert is_loopback_peer("127.evil.com") is False
 
 
-def test_run_daemon_exits_when_wildcard_bind_lacks_token(
+def test_assert_loopback_bind_rejects_wildcard_and_lan() -> None:
+    from pboy.daemon.server import assert_loopback_bind
+
+    with pytest.raises(ValueError, match="local-only"):
+        assert_loopback_bind("0.0.0.0")
+    with pytest.raises(ValueError, match="local-only"):
+        assert_loopback_bind("::")
+    with pytest.raises(ValueError, match="local-only"):
+        assert_loopback_bind("192.168.1.10")
+    with pytest.raises(ValueError, match="local-only"):
+        assert_loopback_bind("127.evil.com")
+
+
+def test_is_local_hostname_rejects_127_prefix_dns() -> None:
+    """``127.evil.com`` must not pass the Host allowlist (DNS rebinding)."""
+    from pboy.daemon.guard import is_local_hostname
+
+    assert is_local_hostname("127.0.0.1") is True
+    assert is_local_hostname("127.0.1.1") is True
+    assert is_local_hostname("localhost") is True
+    assert is_local_hostname("::1") is True
+    assert is_local_hostname("127.evil.com") is False
+    assert is_local_hostname("evil.example") is False
+    assert is_local_hostname("test") is False
+    assert is_local_hostname("testserver") is False
+
+
+def test_check_request_local_only_rules() -> None:
+    from pboy.daemon.guard import check_request
+
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.0.0.1:8080",
+            method="GET",
+            origin=None,
+            sec_fetch_site="",
+        )
+        is None
+    )
+    assert (
+        check_request(
+            peer="203.0.113.10",
+            host_header="127.0.0.1",
+            method="GET",
+            origin=None,
+            sec_fetch_site="",
+        )
+        is not None
+    )
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="evil.example",
+            method="GET",
+            origin=None,
+            sec_fetch_site="",
+        )
+        is not None
+    )
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.evil.com:8080",
+            method="GET",
+            origin=None,
+            sec_fetch_site="",
+        )
+        is not None
+    )
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.0.0.1",
+            method="POST",
+            origin=None,
+            sec_fetch_site="cross-site",
+        )
+        is not None
+    )
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.0.0.1",
+            method="POST",
+            origin="http://127.0.0.1",
+            sec_fetch_site="same-origin",
+        )
+        is None
+    )
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.0.0.1",
+            method="POST",
+            origin="https://evil.example",
+            sec_fetch_site="same-origin",
+        )
+        is not None
+    )
+    # WebSocket: missing Origin blocked; matching Origin allowed.
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.0.0.1",
+            method="WEBSOCKET",
+            origin=None,
+            sec_fetch_site="",
+        )
+        is not None
+    )
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.0.0.1",
+            method="WEBSOCKET",
+            origin="http://127.0.0.1",
+            sec_fetch_site="",
+        )
+        is None
+    )
+    assert (
+        check_request(
+            peer="127.0.0.1",
+            host_header="127.0.0.1",
+            method="WEBSOCKET",
+            origin="https://evil.example",
+            sec_fetch_site="",
+        )
+        is not None
+    )
+
+
+def test_run_daemon_exits_on_non_loopback_bind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import pboy.core.config as config_mod
     from pboy.daemon import server as server_mod
 
-    monkeypatch.delenv("PB_AUTH_TOKEN", raising=False)
     monkeypatch.setattr(config_mod, "_settings", None)
 
     def _fail_uvicorn(*_args: object, **_kwargs: object) -> None:

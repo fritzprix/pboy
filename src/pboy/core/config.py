@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     # Daemon process overwrites this to the actual bind URL on start.
     daemon_url: str = ""
 
-    # Shared secret for mutating daemon APIs (header X-PB-Token or Bearer).
-    auth_token: str = ""
-
     # Database
     database_url: str | None = None
 
