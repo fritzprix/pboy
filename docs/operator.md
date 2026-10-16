@@ -50,7 +50,14 @@ Do this once end-to-end before debugging anything else.
    ```
 
 Slack: bot token (`xoxb-`) **and** app token (`xapp-`, `connections:write`), topic
-`slack:message`. Step-by-step: [`src/pboy/channels/README.md`](../src/pboy/channels/README.md).
+`slack:message`. CLI needs **both** secrets with `--secret-name`:
+
+```bash
+uvx pboy channel set-secret slack --secret-name bot_token --value 'xoxb-...'
+uvx pboy channel set-secret slack --secret-name app_token --value 'xapp-...'
+```
+
+Full steps: [`src/pboy/channels/README.md`](../src/pboy/channels/README.md).
 
 ---
 
@@ -141,9 +148,12 @@ curl -s http://127.0.0.1:8080/healthz
    **running** (not only stopped-in-store).
 3. Telegram: token valid; BotFather bot started with `/start`; long-poll calls
    `deleteWebhook` on start — a competing webhook elsewhere will steal updates.
-4. `PB_CHANNELS_ENABLED` / `PB_TELEGRAM_BOT_TOKEN` when set **override** store values
-   (including empty) — check env in the daemon’s shell.
-5. Slack: both `bot_token` and `app_token`; Socket Mode enabled on the Slack app.
+4. Env vs store (check the daemon’s shell):
+   - `PB_CHANNELS_ENABLED` — if the variable is **present**, it overrides the store
+     even when empty (`""` disables all env-listed channels).
+   - `PB_TELEGRAM_BOT_TOKEN` / `PB_SLACK_*` — override the store only when
+     **non-empty** after strip; blank env falls back to stored secrets.
+5. Slack: both `bot_token` and `app_token` (CLI: `--secret-name`); Socket Mode on.
 
 ### Hook not matching / not running
 
