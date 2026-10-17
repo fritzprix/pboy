@@ -15,8 +15,8 @@ Status: alpha.
 ## How it works
 
 ```text
-chat message ──▶ event ──▶ matching hook runs ──▶ event complete ──▶ reply in chat
- (Telegram/Slack)  (CloudEvent)  (your command,        (CLI or HTTP)     (--sync telegram)
+chat message ──▶ event ──▶ matching hook runs ──▶ event reply / complete --sync ──▶ reply in chat
+ (Telegram/Slack)  (CloudEvent)  (your command,        (CLI or HTTP)     (telegram|slack)
                                   event JSON on stdin)
 ```
 
@@ -51,10 +51,11 @@ Leave this running and use a second terminal for the CLI. The CLI finds the runn
 
    On Windows, use `--exec 'cmd /c echo hello-from-pboy'`.
 4. Message the bot. The event and the hook execution appear in `/ui`.
-5. Reply to the chat by completing the event (find the id in `/ui` or `pboy event list`):
+5. Reply to the chat (bot token — **not** `pboy telegram …`):
 
    ```bash
-   uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
+   uvx pboy event reply <event_id> --summary 'Resolved'
+   # same as: uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
    ```
 
 ## Writing hooks
@@ -64,7 +65,7 @@ A hook command receives:
 | Input | Contents |
 |-------|----------|
 | stdin | The event as JSON (see below) |
-| `PB_EVENT_ID` | Event id; `pboy event complete` uses it by default |
+| `PB_EVENT_ID` | Event id; `pboy event reply` / `complete` use it by default |
 | `PB_SOURCE` | `telegram`, `slack`, … |
 | `PB_HOOK_NAME` | Name of the hook being run |
 | `PB_LEASE_TOKEN` | Lease token, when the event is leased |
@@ -90,7 +91,7 @@ So a hook can read the message, do its work, and reply in one script:
 #!/usr/bin/env bash
 text=$(jq -r '.data.summary')
 result=$(do-something-with "$text")
-pboy event complete --summary "$result" --sync telegram   # uses $PB_EVENT_ID
+pboy event reply --summary "$result"   # uses $PB_EVENT_ID; bot reply
 ```
 
 **Topics:** `telegram:message`, `slack:message`, `jira:issue.created`, `jira:issue.updated`,
@@ -116,8 +117,10 @@ and there are no env-var overrides for tokens.
 | Purpose | Messages to your bot trigger hooks | Read and export chats your own account is in |
 | Credentials | Token from @BotFather | `api_id` / `api_hash` from [my.telegram.org](https://my.telegram.org), plus a one-time account connect (phone + code) |
 | Used by | The daemon and hooks | `pboy telegram …` commands |
+| Reply / send | `pboy telegram reply` / `event reply` / `complete --sync telegram` | **No** — chats/messages/export only |
 
-The bot token alone cannot list your chats; the App API does not trigger hooks.
+The bot token alone cannot list your chats; the App API does not trigger hooks and
+does not send bot replies.
 
 ```bash
 uvx pboy telegram chats
@@ -147,7 +150,9 @@ uvx pboy hook delete <name>
 uvx pboy event list
 uvx pboy event get <id>                # without execution output
 uvx pboy event get <id> --verbose      # include hook stdout/stderr
+uvx pboy event reply <id> --summary '…'          # auto telegram|slack from event
 uvx pboy event complete <id> --summary '…' --sync telegram
+uvx pboy event complete <id> --summary '…' --sync slack
 
 # channels
 uvx pboy channel list

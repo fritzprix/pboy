@@ -610,3 +610,48 @@ async def test_complete_event_runs_slack_sync(
     assert completion.sync_results[0].target == "slack"
     assert completion.sync_results[0].ok is True
 
+
+def test_cli_event_reply_auto_picks_slack(
+    cli_runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """event reply without --sync uses slack when event.source is slack."""
+    import json
+
+    import pboy.core.config as config_mod
+
+    db = tmp_path / "reply-slack.db"
+    monkeypatch.setenv("PB_DATABASE_URL", f"sqlite:///{db.resolve().as_posix()}")
+    monkeypatch.setenv("PB_SECRET_KEY", "fixed_cli_slack_reply_secret_key_32!")
+    monkeypatch.setenv("PB_CONFIG_DIR", str((tmp_path / "cfg").resolve()))
+    monkeypatch.setenv("PB_DATA_DIR", str((tmp_path / "data").resolve()))
+    monkeypatch.setattr(config_mod, "_settings", None)
+
+    inject = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "inject",
+            "--source",
+            "slack",
+            "--payload",
+            json.dumps(
+                {
+                    "event": {
+                        "client_msg_id": "m1",
+                        "channel": "C1",
+                        "user": "U1",
+                        "text": "hi",
+                        "ts": "1.2",
+                    }
+                }
+            ),
+            "--no-dispatch",
+        ],
+    )
+    assert inject.exit_code == 0, inject.output
+    event_id = json.loads(inject.output)["event_id"]
+    res = cli_runner.invoke(
+        app, ["event", "reply", event_id, "--summary", "slack-reply-text"]
+    )
+    assert "slack-reply-text" in res.output
+    assert "sync slack" in res.output

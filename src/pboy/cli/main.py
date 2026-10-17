@@ -48,7 +48,9 @@ hook_app = typer.Typer(
         "Manage event hooks (register, list, delete).\n\n"
         "Supported topics: telegram:message, slack:message, jira:issue.created, "
         "jira:issue.updated, confluence:page.updated, or wildcards (e.g. telegram:*, *).\n"
-        "Supported filters: .path.to.field == \"value\" or != (invalid filters fail-closed)."
+        "Supported filters: .path.to.field == \"value\" or != (invalid filters fail-closed).\n"
+        "Telegram bot reply from a hook: `pboy event reply --summary '…'` "
+        "(uses $PB_EVENT_ID; not `pboy telegram`)."
     ),
     no_args_is_help=True,
 )
@@ -60,21 +62,43 @@ state_app = typer.Typer(
 )
 event_app = typer.Typer(
     help=(
-        "Manage, inject, and inspect CloudEvents (get/complete default to $PB_EVENT_ID inside hooks)."
+        "Manage, inject, and inspect CloudEvents "
+        "(get/complete/reply default to $PB_EVENT_ID inside hooks).\n\n"
+        "Chat reply: `pboy event reply --summary '…'` picks telegram or slack "
+        "from the event source (or pass `--sync`). "
+        "Do not use `pboy telegram chats|…` for bot replies."
     ),
     no_args_is_help=True,
 )
 channel_app = typer.Typer(
-    help="Manage inbound channels (telegram, slack) and encrypted secrets.",
+    help=(
+        "Manage inbound channels (telegram, slack) and encrypted secrets.\n\n"
+        "Replies: `pboy event reply <id> --summary '…'` "
+        "(telegram bot or slack thread from the event source)."
+    ),
     no_args_is_help=True,
 )
 telegram_app = typer.Typer(
     help=(
-        "Telegram App API (user account): list dialogs, fetch messages, download media, export.\n\n"
-        "Requires api_id/api_hash + account connect in /ui/settings. "
-        "Separate from bot-token wake-up channel."
+        "Two rails share this name — do not stop at the App API commands:\n\n"
+        "• `reply` / `send` — Telegram **bot** reply to an inbound event "
+        "(delegates to `pboy event reply` / `complete --sync telegram`).\n"
+        "• `chats` / `messages` / `download` / `export` — App API **user account** "
+        "read/export only (needs api_id/api_hash + account connect in /ui/settings).\n\n"
+        "If the bot channel is already receiving messages, use `pboy telegram reply` "
+        "(or `pboy event reply`); do not create a new bot just to send."
     ),
     no_args_is_help=True,
+)
+
+_TELEGRAM_BOT_REPLY_TIP = (
+    "tip: Telegram bot reply → pboy telegram reply <id> --summary '…' "
+    "(same as event reply / complete --sync telegram). "
+    "chats|messages|download|export are App API read/export only."
+)
+_SLACK_REPLY_TIP = (
+    "tip: Slack thread reply → pboy event reply <id> --summary '…' "
+    "(or complete --sync slack)."
 )
 files_app = typer.Typer(
     help=(
@@ -592,7 +616,14 @@ def event_complete(
     summary: Annotated[str, typer.Option("--summary", help="Resolution summary text")] = "Completed",
     sync: Annotated[
         str | None,
-        typer.Option("--sync", help="Outbound sync targets (comma-separated, e.g. telegram)"),
+        typer.Option(
+            "--sync",
+            help=(
+                "Outbound sync targets (comma-separated). "
+                "Use `telegram` to send the summary as a bot reply "
+                "(prefer `pboy event reply` for the same effect)."
+            ),
+        ),
     ] = None,
     file_path: Annotated[
         str | None,
@@ -611,7 +642,11 @@ def event_complete(
     ] = None,
     daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Mark an event processing as complete (optional outbound reply via ``--sync telegram``)."""
+    """Mark an event complete; add ``--sync telegram`` to reply in the originating chat.
+
+    Prefer ``pboy event reply`` when you only need a Telegram bot reply.
+    ``pboy telegram …`` is a different rail (App API) and does not send bot messages.
+    """
     from pathlib import Path
 
     from pboy.models.completion import parse_sync_targets
@@ -718,6 +753,105 @@ def event_complete(
     _run_with_store(_run)
 
 
+def _reply_sync_for_event_source(source: str) -> str:
+    """Map CloudEvent ``source`` to a completion sync target."""
+    name = source.strip().lower()
+    if name == "telegram":
+        return "telegram"
+    if name == "slack":
+        return "slack"
+    raise ValueError(
+        f"event reply has no outbound for source={source!r} "
+        "(supported: telegram, slack). Pass --sync explicitly if needed."
+    )
+
+
+@event_app.command("reply")
+def event_reply(
+    event_id: Annotated[
+        str | None,
+        typer.Argument(help="Event ID (defaults to $PB_EVENT_ID)"),
+    ] = None,
+    summary: Annotated[
+        str, typer.Option("--summary", help="Reply text sent to the originating chat")
+    ] = "Completed",
+    sync: Annotated[
+        str | None,
+        typer.Option(
+            "--sync",
+            help=(
+                "Outbound target (telegram|slack). "
+                "Default: derived from the event source."
+            ),
+        ),
+    ] = None,
+    file_path: Annotated[
+        str | None,
+        typer.Option("--file-path", help="Local file to send (Telegram sync only)"),
+    ] = None,
+    file_id: Annotated[
+        str | None,
+        typer.Option("--file-id", help="Telegram file_id to re-send (Telegram sync only)"),
+    ] = None,
+    file_type: Annotated[
+        str | None,
+        typer.Option(
+            "--file-type",
+            help="Reply file type: photo|document|audio|video (Telegram; default document)",
+        ),
+    ] = None,
+    daemon_url: DaemonUrlOption = None,
+) -> None:
+    """Reply on the originating chat (Telegram bot or Slack thread).
+
+    Shortcut for ``pboy event complete --sync <telegram|slack>``. Default target
+    follows the event ``source``. ``pboy telegram chats|messages|…`` is App API
+    only and cannot send bot replies.
+    """
+    resolved_id = _resolve_event_id_or_exit(event_id)
+    targets = sync
+    if not targets:
+        resolved_url = _active_daemon_url(daemon_url)
+        source: str | None = None
+        if resolved_url:
+            try:
+                event = DaemonClient(resolved_url).get_event(resolved_id)
+            except httpx.HTTPError as exc:
+                _daemon_http_error(exc)
+            if event is None:
+                typer.echo(f"Event '{resolved_id}' not found.", err=True)
+                raise typer.Exit(code=1)
+            source = event.source
+        else:
+
+            async def _load_source(store: SQLiteStore) -> str:
+                loaded = await store.get_event(resolved_id)
+                if loaded is None:
+                    raise KeyError(f"Event '{resolved_id}' not found.")
+                return loaded.source
+
+            try:
+                source = _run_with_store(_load_source)
+            except KeyError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=1) from exc
+        try:
+            targets = _reply_sync_for_event_source(source or "")
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+
+    event_complete(
+        event_id=resolved_id,
+        summary=summary,
+        sync=targets,
+        file_path=file_path,
+        file_id=file_id,
+        file_type=file_type,
+        daemon_url=daemon_url,
+    )
+
+
 # ── Channel ──────────────────────────────────────────────────────────────────
 @channel_app.command("list")
 def channel_list(
@@ -730,13 +864,24 @@ def channel_list(
             body = client.list_channels()
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
+        saw_telegram = False
+        saw_slack = False
         for row in body.get("channels", []):
             flags = []
             flags.append("enabled" if row.get("enabled") else "disabled")
             flags.append("running" if row.get("running") else "stopped")
             if row.get("secret_keys") or row.get("secret_key"):
                 flags.append("secret=yes" if row.get("has_secret") else "secret=no")
-            typer.echo(f"• {row.get('name')} [{', '.join(flags)}]")
+            name = str(row.get("name") or "")
+            if name == "telegram":
+                saw_telegram = True
+            if name == "slack":
+                saw_slack = True
+            typer.echo(f"• {name} [{', '.join(flags)}]")
+        if saw_telegram:
+            typer.echo(_TELEGRAM_BOT_REPLY_TIP, err=True)
+        if saw_slack:
+            typer.echo(_SLACK_REPLY_TIP, err=True)
         return
 
     async def _run(store: SQLiteStore) -> None:
@@ -748,13 +893,24 @@ def channel_list(
             return None
 
         reg = ChannelRegistry(emit=_noop_emit, store=store, settings=get_settings())
+        saw_telegram = False
+        saw_slack = False
         for row in await reg.list_status():
             flags = []
             flags.append("enabled" if row["enabled"] else "disabled")
             flags.append("running" if row["running"] else "stopped")
             if row.get("secret_keys") or row.get("secret_key"):
                 flags.append("secret=yes" if row["has_secret"] else "secret=no")
-            typer.echo(f"• {row['name']} [{', '.join(flags)}]")
+            name = str(row["name"])
+            if name == "telegram":
+                saw_telegram = True
+            if name == "slack":
+                saw_slack = True
+            typer.echo(f"• {name} [{', '.join(flags)}]")
+        if saw_telegram:
+            typer.echo(_TELEGRAM_BOT_REPLY_TIP, err=True)
+        if saw_slack:
+            typer.echo(_SLACK_REPLY_TIP, err=True)
 
     _run_with_store(_run)
 
@@ -887,6 +1043,55 @@ def _telegram_service(store: SQLiteStore) -> Any:
     from pboy.core.config import get_settings
 
     return TelegramAppService(store=store, settings=get_settings())
+
+
+@telegram_app.command("reply")
+@telegram_app.command("send", hidden=True)
+def telegram_reply(
+    event_id: Annotated[
+        str | None,
+        typer.Argument(help="Event ID (defaults to $PB_EVENT_ID)"),
+    ] = None,
+    summary: Annotated[str, typer.Option("--summary", help="Reply text sent via bot token")] = (
+        "Completed"
+    ),
+    file_path: Annotated[
+        str | None,
+        typer.Option("--file-path", help="Local file to send with the reply"),
+    ] = None,
+    file_id: Annotated[
+        str | None,
+        typer.Option("--file-id", help="Telegram file_id to re-send with the reply"),
+    ] = None,
+    file_type: Annotated[
+        str | None,
+        typer.Option(
+            "--file-type",
+            help="Reply file type: photo|document|audio|video (default document)",
+        ),
+    ] = None,
+    daemon_url: DaemonUrlOption = None,
+) -> None:
+    """Bot reply to an inbound event (NOT App API).
+
+    Listed under ``pboy telegram`` so ``--help`` does not look read-only.
+    Same as ``pboy event reply`` / ``pboy event complete --sync telegram`` —
+    uses the bot token and event ``channel_id``, not the user-account session.
+    """
+    typer.echo(
+        "note: bot-token reply via event complete "
+        "(not App API chats/messages).",
+        err=True,
+    )
+    event_reply(
+        event_id=event_id,
+        summary=summary,
+        sync="telegram",
+        file_path=file_path,
+        file_id=file_id,
+        file_type=file_type,
+        daemon_url=daemon_url,
+    )
 
 
 @telegram_app.command("chats")

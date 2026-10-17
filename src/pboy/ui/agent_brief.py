@@ -16,6 +16,28 @@ hooks run commands on this PC; completing an event can reply in chat.
 The daemon for this brief is at `{base_url}`. If `pboy` is not on PATH, run every
 command below as `uvx pboy …` instead (and write the skill that way too).
 
+## Reply in chat (read this first)
+
+Inbound messages create events. **To reply, complete the event with sync** — there
+is no separate “send message” API.
+
+```bash
+pboy event reply <event_id> --summary 'your reply text'
+# picks --sync telegram or --sync slack from the event source
+# inside a hook (PB_EVENT_ID is set):
+pboy event reply --summary 'your reply text'
+```
+
+| Source | How to reply | Notes |
+|--------|--------------|-------|
+| Telegram bot | `event reply` / `telegram reply` / `complete --sync telegram` | BotFather token; files via `--file-path` / `--file-id` |
+| Slack | `event reply` / `complete --sync slack` | Bot token with `chat:write`; posts in-thread; text only (`--file-*` is rejected) |
+| `pboy telegram chats|messages|…` | **Not for replies** | App API user-account read/export only |
+
+`pboy telegram --help` lists **`reply`** next to chats/messages — that command is
+**bot-token outbound via the event**, not App API. Do not conclude “telegram is
+read-only” from chats/messages/download/export alone.
+
 ## Your three jobs (do them in order)
 
 1. **Support configuration** — get channels and secrets into a working state via
@@ -25,7 +47,7 @@ command below as `uvx pboy …` instead (and write the skill that way too).
 2. **Create a session skill** — add a Cursor Agent Skill under
    `.cursor/skills/pboy-<short-purpose>/SKILL.md` that teaches how to operate Pageboy
    in **this** workspace (daemon URL/port, which channels are in use, hook names,
-   reply/`event complete` conventions). Keep secrets out of the skill file.
+   reply/`event reply` conventions). Keep secrets out of the skill file.
 3. **Subscribe to events** — register hooks with `pboy hook register` for the right
    topics (`telegram:message`, `slack:message`, …) and a **safe** `--exec` (no
    tokens/passwords in the command string). Confirm matches in `/ui` or
@@ -44,10 +66,11 @@ command below as `uvx pboy …` instead (and write the skill that way too).
 
 | Rail | Purpose | Credentials |
 |------|---------|-------------|
-| **Bot** | Messages to the bot → hooks (`telegram:message`) | BotFather token + enable + pair/allowlist |
+| **Bot** | Messages to the bot → hooks (`telegram:message`); replies via `event reply` | BotFather token + enable + pair/allowlist |
 | **App API** | List/export chats the **user account** is in (`pboy telegram …`) | `api_id` / `api_hash` + one-time phone/code connect |
 
-Bot token alone cannot list personal chats. App API does **not** trigger hooks.
+Bot token alone cannot list personal chats. App API does **not** trigger hooks and
+does **not** send bot replies.
 
 Until a chat is paired (or an allowlist is saved), **any** Telegram chat can trigger hooks.
 
@@ -57,8 +80,9 @@ Until a chat is paired (or an allowlist is saved), **any** Telegram chat can tri
 - Telegram bot: save `bot_token`, enable channel, pair chat (or set allowlist).
 - Optional App API: save `api_id` / `api_hash`, complete account connect; use
   `pboy telegram chats|messages|download|export`.
-- Slack: save `bot_token` (`xoxb-…`) and `app_token` (`xapp-…` with
-  `connections:write`), enable Socket Mode on the Slack app, enable channel.
+- Slack: save `bot_token` (`xoxb-…`, needs the `chat:write` scope to reply) and
+  `app_token` (`xapp-…` with `connections:write`), enable Socket Mode on the Slack
+  app, enable channel.
 - CLI alternatives: `pboy channel set-secret`, `pboy channel enable`,
   `pboy channel list`.
 
@@ -74,7 +98,7 @@ pboy hook register \\
 pboy hook list
 pboy event list
 pboy event get <id> --verbose
-pboy event complete <id> --summary '…' --sync telegram
+pboy event reply <id> --summary '…'
 ```
 
 - Topics include: `telegram:message`, `slack:message`, `jira:issue.created`,
@@ -82,7 +106,9 @@ pboy event complete <id> --summary '…' --sync telegram
 - `--filter` is fail-closed: only `.path == "value"` / `!=` are supported; anything
   else matches nothing.
 - Hook process gets event JSON on stdin and env such as `PB_EVENT_ID`, `PB_SOURCE`,
-  `PB_HOOK_NAME`. Prefer `pboy event complete` with `$PB_EVENT_ID` for replies.
+  `PB_HOOK_NAME`. Reply with `pboy event reply` and `$PB_EVENT_ID`; it picks
+  Telegram or Slack from the event source (`complete --sync telegram|slack` is the
+  explicit form).
 - Never put secrets in `hook.exec`. Prefer allowlisted chats over open inbound.
 
 ## Docs
@@ -96,9 +122,10 @@ pboy event complete <id> --summary '…' --sync telegram
 
 Create `.cursor/skills/pboy-<purpose>/SKILL.md` with YAML front matter
 (`name`, `description`) and sections: when to use, daemon/CLI assumptions for this
-machine, channel rails in use, how to register/list hooks, how to complete/sync
-replies, and safety (store-only secrets, no exec secrets, allowlist). Point the
-operator to `/ui` and the docs above rather than inventing remote access.
+machine, channel rails in use, how to register/list hooks, how to `event reply` /
+`complete --sync telegram|slack`, and safety (store-only secrets, no exec secrets,
+allowlist). Point the operator to `/ui` and the docs above rather than inventing
+remote access.
 """
 
 

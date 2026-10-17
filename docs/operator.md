@@ -44,11 +44,11 @@ Do this once end-to-end before debugging anything else.
 
 5. **Message the bot** in Telegram → `/ui` shows event + execution.
 
-6. **Complete + reply** (optional):
+6. **Complete + reply** (optional — bot token, not `pboy telegram`):
 
    ```bash
    uvx pboy event list
-   uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
+   uvx pboy event reply <event_id> --summary 'Resolved'
    ```
 
 Slack: bot token (`xoxb-`) **and** app token (`xapp-`, `connections:write`), topic

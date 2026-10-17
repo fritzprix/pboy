@@ -116,6 +116,9 @@ class EventCompleteRequest(BaseModel):
             "Include `\"telegram\"` for a Telegram bot reply, or `\"slack\"` for a "
             "Slack `chat.postMessage` thread reply (bot token). "
             "Optional file_* apply to Telegram only. "
+            "CLI: `pboy event reply` (auto-picks from event source) or "
+            "`pboy event complete --sync telegram|slack`. "
+            "`pboy telegram chats|…` is App API read/export and cannot send bot replies. "
             "Note: CLI `--sync` is comma-separated; HTTP requires `list[str]`."
         ),
         examples=[["telegram"], ["slack"]],

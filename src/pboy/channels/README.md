@@ -92,26 +92,28 @@ forever under burst load. Staged files are not auto-deleted — see
 
 ### Replying (outbound sync)
 
-When a hook finishes, it can close the loop:
+When a hook finishes, close the loop with a **bot** reply (same BotFather token that
+received the message). Prefer the discoverable shortcut:
 
 ```bash
-pboy event complete "$PB_EVENT_ID" \
-  --summary 'Restarted worker-2' \
-  --sync telegram
+pboy event reply --summary 'Restarted worker-2'   # uses $PB_EVENT_ID
+# equivalent:
+pboy event complete --summary 'Restarted worker-2' --sync telegram
 ```
+
+Do **not** use `pboy telegram …` for this — that group is App API (user account)
+read/export only and cannot send bot messages.
 
 This uses the bot token, posts to `event.data.channel_id`, and replies to
 `event.data.entity_key` (the message id) when numeric. A failed sync makes the CLI exit
 non-zero, but the completion record is still saved. Re-running
-`pboy event complete … --sync telegram` retries **failed/missing** sync targets only
-(successful ones are not re-sent; the original summary is kept).
+`pboy event complete … --sync telegram` / `event reply` retries **failed/missing**
+sync targets only (successful ones are not re-sent; the original summary is kept).
 
 To send a **reply file** (explicit — inbound attachments are never echoed automatically):
 
 ```bash
-pboy event complete "$PB_EVENT_ID" \
-  --summary 'Report attached' \
-  --sync telegram \
+pboy event reply --summary 'Report attached' \
   --file-path ./out.png \
   --file-type photo
 # or: --file-id '<telegram-file-id>' --file-type document
@@ -159,6 +161,14 @@ list your dialogs.
    ```
 
 3. Start the daemon, register a hook on `slack:message`, then message the app.
+4. Reply in the same thread:
+
+   ```bash
+   pboy event reply --summary 'Restarted worker-2'   # uses $PB_EVENT_ID; --sync slack
+   # or: pboy event complete "$PB_EVENT_ID" --summary '…' --sync slack
+   ```
+
+   Uses the bot token (`chat.postMessage` with `thread_ts` from the inbound event).
 
 ## Module layout
 
