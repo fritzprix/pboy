@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pboy.outbound.slack import SlackOutbound
 from pboy.outbound.telegram import TelegramOutbound
 
-__all__ = ["TelegramOutbound"]
+__all__ = ["SlackOutbound", "TelegramOutbound"]

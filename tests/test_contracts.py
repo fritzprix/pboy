@@ -119,6 +119,9 @@ def test_contract_normalize_slack(sample_slack_payload: dict) -> None:
     assert dumped["type"] == TOPIC_TYPE_CONTRACT["slack:message"]
     assert dumped["data"]["summary"]
     assert dumped["data"]["channel_id"] == "C01234567"
+    # thread_id only when already threaded; message ts lives in extra for outbound.
+    assert "thread_id" not in dumped["data"]
+    assert dumped["data"]["extra"]["ts"] == "1696800000.000100"
 
 
 def test_contract_normalize_telegram(sample_telegram_payload: dict) -> None:

@@ -291,3 +291,190 @@ def test_cli_dunder_main() -> None:
     )
     assert result.returncode == 0
     assert pboy.__version__ in result.stdout
+
+
+def test_cli_telegram_bot_reply_discoverability(cli_runner: CliRunner) -> None:
+    """Bot reply path must be obvious in help (not confused with App API)."""
+    event_help = cli_runner.invoke(app, ["event", "--help"])
+    assert event_help.exit_code == 0
+    assert "reply" in event_help.output
+    assert "complete --sync telegram" in event_help.output or "event reply" in event_help.output
+
+    reply_help = cli_runner.invoke(app, ["event", "reply", "--help"])
+    assert reply_help.exit_code == 0
+    assert "telegram" in reply_help.output.lower() and "slack" in reply_help.output.lower()
+    assert "App API" in reply_help.output
+
+    tg_help = cli_runner.invoke(app, ["telegram", "--help"])
+    assert tg_help.exit_code == 0
+    # Commands table must list reply — agents stop at read-only if they only see
+    # chats/messages/download/export.
+    assert "reply" in tg_help.output
+    assert "Bot reply" in tg_help.output or "bot" in tg_help.output.lower()
+    assert "chats" in tg_help.output and "messages" in tg_help.output
+
+    tg_reply_help = cli_runner.invoke(app, ["telegram", "reply", "--help"])
+    assert tg_reply_help.exit_code == 0
+    assert "event reply" in tg_reply_help.output or "complete --sync telegram" in tg_reply_help.output
+    assert "NOT App API" in tg_reply_help.output or "not App API" in tg_reply_help.output.lower()
+
+
+def test_cli_event_reply_completes_with_telegram_sync(
+    cli_runner: CliRunner, cli_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """event reply is complete --sync telegram (no bot token → sync FAIL is ok)."""
+    inject = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "inject",
+            "--source",
+            "telegram",
+            "--payload",
+            '{"message":{"message_id":9,"chat":{"id":100},"from":{"id":200,"username":"bob"},"text":"hi"}}',
+            "--no-dispatch",
+        ],
+    )
+    assert inject.exit_code == 0, inject.output
+    import json
+
+    event_id = json.loads(inject.output)["event_id"]
+    monkeypatch.setenv("PB_EVENT_ID", event_id)
+    # No bot token in this fixture DB → sync fails but completion is recorded.
+    res = cli_runner.invoke(app, ["event", "reply", "--summary", "pong-from-reply"])
+    assert "pong-from-reply" in res.output
+    assert "sync telegram" in res.output
+
+
+def test_agent_brief_leads_with_telegram_bot_reply() -> None:
+    from pboy.ui.agent_brief import render_agent_brief
+
+    text = render_agent_brief("http://127.0.0.1:8080")
+    assert "Reply in chat" in text
+    assert "pboy event reply" in text
+    assert "--sync slack" in text
+    assert "read-only" in text
+    # Reply section appears before the three jobs checklist.
+    assert text.index("Reply in chat") < text.index("Your three jobs")
+
+
+def test_cli_telegram_reply_forces_telegram_sync_not_slack(
+    cli_runner: CliRunner, cli_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pboy telegram reply must not follow a Slack event source."""
+    import json
+
+    inject = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "inject",
+            "--source",
+            "slack",
+            "--payload",
+            json.dumps(
+                {
+                    "event": {
+                        "client_msg_id": "m1",
+                        "channel": "C1",
+                        "user": "U1",
+                        "text": "hi",
+                        "ts": "1.2",
+                    }
+                }
+            ),
+            "--no-dispatch",
+        ],
+    )
+    assert inject.exit_code == 0, inject.output
+    event_id = json.loads(inject.output)["event_id"]
+    res = cli_runner.invoke(
+        app, ["telegram", "reply", event_id, "--summary", "must-be-telegram-sync"]
+    )
+    # Forced --sync telegram: missing bot token → telegram FAIL, not slack.
+    assert "sync telegram" in res.output
+    assert "sync slack" not in res.output
+
+
+def test_cli_event_reply_unsupported_source_exits(
+    cli_runner: CliRunner, cli_db: Path
+) -> None:
+    import json
+
+    inject = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "inject",
+            "--source",
+            "jira",
+            "--payload",
+            json.dumps(
+                {
+                    "issue": {
+                        "key": "X-1",
+                        "fields": {
+                            "summary": "s",
+                            "priority": {"name": "High"},
+                            "project": {"key": "X"},
+                            "reporter": {"displayName": "a"},
+                        },
+                    }
+                }
+            ),
+            "--no-dispatch",
+        ],
+    )
+    assert inject.exit_code == 0, inject.output
+    event_id = json.loads(inject.output)["event_id"]
+    res = cli_runner.invoke(app, ["event", "reply", event_id, "--summary", "nope"])
+    assert res.exit_code == 1
+    assert "no outbound" in res.output.lower() or "supported" in res.output.lower()
+
+
+def test_cli_event_reply_requires_event_id(
+    cli_runner: CliRunner, cli_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("PB_EVENT_ID", raising=False)
+    res = cli_runner.invoke(app, ["event", "reply", "--summary", "x"])
+    assert res.exit_code == 1
+    assert "PB_EVENT_ID" in res.output or "Event ID" in res.output
+
+
+def test_cli_complete_rejects_file_with_slack_sync(
+    cli_runner: CliRunner, cli_db: Path, tmp_path: Path
+) -> None:
+    import json
+
+    inject = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "inject",
+            "--source",
+            "slack",
+            "--payload",
+            '{"event":{"channel":"C1","user":"U1","text":"hi","ts":"1.2"}}',
+            "--no-dispatch",
+        ],
+    )
+    assert inject.exit_code == 0, inject.output
+    event_id = json.loads(inject.output)["event_id"]
+    blob = tmp_path / "x.bin"
+    blob.write_bytes(b"x")
+    res = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "complete",
+            event_id,
+            "--summary",
+            "file",
+            "--sync",
+            "slack",
+            "--file-path",
+            str(blob),
+        ],
+    )
+    assert res.exit_code == 1
+    assert "Telegram-only" in res.output or "file" in res.output.lower()

@@ -42,7 +42,7 @@ M3 Outbound
 M4 Wake-up channels (revised)
   #10 Slack Socket Mode          ✅
   #11 Jira/Confluence webhook+relay  ⏸ deferred (agent REST pull instead)
-  #12 outbound jira/slack        ⏸ jira sync deferred; slack thread optional later
+  #12 outbound jira/slack        ✅ slack thread reply; ⏸ jira sync deferred
        │
 M5 Web UI
   #13 dashboard shell            ✅

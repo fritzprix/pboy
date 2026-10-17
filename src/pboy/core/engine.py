@@ -22,6 +22,7 @@ from pboy.models.completion import (
 from pboy.models.execution import ExecutionData
 from pboy.models.hook import Hook
 from pboy.models.reply_file import ReplyFile
+from pboy.outbound.slack import SlackOutbound
 from pboy.outbound.telegram import TelegramOutbound
 from pboy.store.base import StoreBase
 from pboy.store.sqlite import SQLiteStore
@@ -149,6 +150,10 @@ class Engine:
                 raise KeyError(f"Event '{event_id}' not found")
 
             targets = list(sync or [])
+            if reply_file is not None and "slack" in targets:
+                raise ValueError(
+                    "Reply files are Telegram-only; omit file fields when sync includes slack"
+                )
             existing = await self.store.get_state(event_id, COMPLETION_STATE_KEY)
             if existing is not None and existing.get("status") == "completed":
                 return await self._retry_failed_sync(
@@ -200,6 +205,10 @@ class Engine:
         When ``reply_file`` is set, also re-run targets that already succeeded so a
         follow-up file reply is not silently dropped.
         """
+        if reply_file is not None and "slack" in targets:
+            raise ValueError(
+                "Reply files are Telegram-only; omit file fields when sync includes slack"
+            )
         if not targets:
             if reply_file is not None:
                 logger.warning(
@@ -250,21 +259,34 @@ class Engine:
         results: list[SyncResult] = []
         for target in targets:
             if target == "telegram":
-                outbound = TelegramOutbound(self.store, self.settings)
+                telegram_out = TelegramOutbound(self.store, self.settings)
                 try:
                     results.append(
-                        await outbound.sync_completion(
+                        await telegram_out.sync_completion(
                             event, summary, reply_file=reply_file
                         )
                     )
                 finally:
-                    await outbound.aclose()
+                    await telegram_out.aclose()
+            elif target == "slack":
+                slack_out = SlackOutbound(self.store, self.settings)
+                try:
+                    results.append(
+                        await slack_out.sync_completion(
+                            event, summary, reply_file=reply_file
+                        )
+                    )
+                finally:
+                    await slack_out.aclose()
             else:
                 results.append(
                     SyncResult(
                         target=target,
                         ok=False,
-                        detail=f"Unknown sync target '{target}' (supported: telegram)",
+                        detail=(
+                            f"Unknown sync target '{target}' "
+                            "(supported: telegram, slack)"
+                        ),
                     )
                 )
         return results

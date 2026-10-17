@@ -25,6 +25,18 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   French, and Spanish, with a header language picker (`pboy_lang` cookie, falling
   back to `Accept-Language`, then English). Flash messages, Telegram login/pairing
   errors, and the pairing-code bot message are localized too.
+- `pboy event reply` and `pboy telegram reply` (alias `send`) — shortcuts for
+  chat replies. `event reply` picks `telegram` or `slack` from the event source;
+  `pboy telegram reply` stays bot-token specific. Listed under
+  `pboy telegram --help` so the Commands table is not read-only-looking
+  (chats/messages/download/export alone). `pboy channel list` prints reply tips on
+  stderr.
+- Slack outbound sync (`--sync slack` / `chat.postMessage` thread reply) so Slack
+  is receive+reply like Telegram. Reply files stay Telegram-only (rejected up front
+  for Slack; the HTTP API answers 422). Slack CloudEvents now include
+  `data.extra.ts` (message timestamp) for outbound thread anchoring;
+  `data.thread_id` still means “already inside a thread” only. Events stored before
+  this change have no `extra.ts`, so their replies post to the channel, not a thread.
 
 ### Changed
 

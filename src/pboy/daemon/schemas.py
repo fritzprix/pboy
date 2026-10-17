@@ -112,11 +112,16 @@ class EventCompleteRequest(BaseModel):
     sync: list[str] = Field(
         default_factory=list,
         description=(
-            "Outbound targets to notify on completion as a JSON list of strings "
-            "(e.g. `[\"telegram\"]`). Note: the CLI `--sync` flag accepts a comma-separated "
-            "string, whereas the HTTP API requires `list[str]`."
+            "Outbound reply targets as a JSON list of strings. "
+            "Include `\"telegram\"` for a Telegram bot reply, or `\"slack\"` for a "
+            "Slack `chat.postMessage` thread reply (bot token). "
+            "Optional file_* apply to Telegram only. "
+            "CLI: `pboy event reply` (auto-picks from event source) or "
+            "`pboy event complete --sync telegram|slack`. "
+            "`pboy telegram chats|…` is App API read/export and cannot send bot replies. "
+            "Note: CLI `--sync` is comma-separated; HTTP requires `list[str]`."
         ),
-        examples=[["telegram"]],
+        examples=[["telegram"], ["slack"]],
     )
     # Explicit reply attachment (never auto-echoes inbound event attachments).
     file_path: str | None = None

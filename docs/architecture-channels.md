@@ -29,8 +29,8 @@ event-queue poll API. The practical no-tunnel alternative is periodic REST searc
 - **M4.2 Jira/Confluence webhook + relay** — **deferred / optional**. Not required
   for agent-first Zero-Ops use.
 - **M4.3 Jira outbound sync** — **deferred as a first-class sync target**. Agents
-  should comment/transition via Jira REST; Slack thread reply remains a reasonable
-  outbound sync later.
+  should comment/transition via Jira REST. Slack thread reply is supported via
+  `--sync slack` / `pboy event reply`.
 - Secrets: store `jira.*` tokens for harness injection when needed; no ChannelAdapter
   required to use them.
 
@@ -41,5 +41,5 @@ wake (Telegram / Slack / inject)
   → hook exec (agent)
       → Jira REST search / get / transition / comment
       → pboy state put / event complete
-  → optional --sync telegram (human-facing reply)
+  → optional --sync telegram|slack (human-facing reply)
 ```
