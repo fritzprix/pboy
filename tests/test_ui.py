@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -117,6 +118,45 @@ async def test_ui_disabled_by_default(tmp_path: Path) -> None:
     ):
         res = await client.get("/ui")
         assert res.status_code == 404
+        root_res = await client.get("/", follow_redirects=False)
+        assert root_res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ui_root_redirects_when_enabled(tmp_path: Path) -> None:
+    application = create_app(
+        db_path=tmp_path / "ui-on.db",
+        secret_key="ui-on-key",
+        enable_ui=True,
+    )
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        res = await client.get("/", follow_redirects=False)
+        assert res.status_code == 307
+        assert res.headers["location"] == "/ui"
+
+
+@pytest.mark.asyncio
+async def test_ui_lifespan_logs_ui_url(tmp_path: Path) -> None:
+    from loguru import logger
+
+    logs: list[str] = []
+    sink_id = logger.add(lambda msg: logs.append(str(msg)), format="{message}")
+    application = create_app(
+        db_path=tmp_path / "ui-log.db",
+        secret_key="ui-log-key",
+        enable_ui=True,
+        public_url="http://127.0.0.1:8080",
+    )
+    try:
+        async with application.router.lifespan_context(application):
+            await asyncio.sleep(0.08)
+        assert any("UI URL: http://127.0.0.1:8080/ui" in msg for msg in logs)
+    finally:
+        logger.remove(sink_id)
 
 
 @pytest.mark.asyncio

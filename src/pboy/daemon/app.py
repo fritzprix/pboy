@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from loguru import logger
 
 from pboy.channels.base import ChannelAdapter
 from pboy.channels.registry import ChannelRegistry
@@ -48,9 +50,24 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     registry: ChannelRegistry = app.state.channel_registry
     await engine.start()
     await registry.start_enabled()
+    ui_log_task: asyncio.Task[None] | None = None
+    if getattr(app.state, "ui_enabled", False):
+        public_url = getattr(app.state, "public_url", None)
+        ui_url = f"{public_url}/ui" if public_url else "/ui"
+
+        async def _log_ui_ready() -> None:
+            try:
+                await asyncio.sleep(0.05)
+                logger.info("UI URL: {}", ui_url)
+            except asyncio.CancelledError:
+                pass
+
+        ui_log_task = asyncio.create_task(_log_ui_ready())
     try:
         yield
     finally:
+        if ui_log_task is not None and not ui_log_task.done():
+            ui_log_task.cancel()
         await registry.stop_all()
         await engine.stop()
 
@@ -62,6 +79,7 @@ def create_app(
     settings: Settings | None = None,
     extra_adapters: list[ChannelAdapter] | None = None,
     enable_ui: bool = False,
+    public_url: str | None = None,
 ) -> FastAPI:
     """Build daemon app with a dedicated Engine/store/channel lifecycle."""
     cfg = settings or get_settings()
@@ -85,6 +103,7 @@ def create_app(
     # Resolve via app.state so a replaced service (tests) is the one cancelled.
     registry.on_app_credentials_changed(lambda: app.state.telegram_app.cancel_login())
     app.state.ui_enabled = enable_ui
+    app.state.public_url = public_url
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, Any]:
@@ -310,8 +329,15 @@ def create_app(
         return SecretPutResponse(key=secret_key, stored=True)
 
     if enable_ui:
+        from fastapi.responses import RedirectResponse
+
         from pboy.ui.mount import mount_ui
 
         mount_ui(app)
+
+        @app.get("/", include_in_schema=False)
+        async def ui_root_redirect() -> RedirectResponse:
+            """Redirect root path to the UI dashboard when UI is enabled."""
+            return RedirectResponse(url="/ui", status_code=307)
 
     return app

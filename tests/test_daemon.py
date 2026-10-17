@@ -280,6 +280,21 @@ def test_run_daemon_exits_on_non_loopback_bind(
     assert excinfo.value.code == 1
 
 
+def test_run_daemon_logs_ui_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from loguru import logger
+
+    from pboy.daemon import server as server_mod
+
+    logs: list[str] = []
+    sink_id = logger.add(lambda msg: logs.append(str(msg)), format="{message}")
+    try:
+        monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
+        server_mod.run_daemon(host="127.0.0.1", port=8080, db=tmp_path / "d.db", ui=True)
+        assert any("UI URL: http://127.0.0.1:8080/ui" in msg for msg in logs)
+    finally:
+        logger.remove(sink_id)
+
+
 @pytest.mark.asyncio
 async def test_openapi_schema_documents_sync_and_inject_payload(
     daemon: DaemonHarness,
