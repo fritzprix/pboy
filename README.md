@@ -5,82 +5,220 @@
 [![License](https://img.shields.io/pypi/l/pboy.svg)](https://github.com/fritzprix/pboy/blob/main/LICENSE)
 [![CI](https://github.com/fritzprix/pboy/actions/workflows/ci.yml/badge.svg)](https://github.com/fritzprix/pboy/actions/workflows/ci.yml)
 
-**Local-first Zero-Ops event orchestrator** for Python: Telegram Bot API long-poll and Slack Socket Mode **wake-ups** → topic-matched hooks (`exec`) on your machine. CloudEvents-shaped events, loopback-only daemon + `/ui`, no public webhook URL.
+Send a message to your Telegram or Slack bot, and a script runs **on your own machine**.
+Pageboy is a local-first event orchestrator: it receives chat messages without a public
+webhook URL (Telegram long-poll, Slack Socket Mode), turns them into events, and runs the
+hooks you registered for them. The daemon and its dashboard listen on loopback only.
 
-Alpha on [PyPI](https://pypi.org/project/pboy/). Jira/Confluence are not daemon webhooks — hook programs call their REST APIs. → [`docs/architecture-channels.md`](docs/architecture-channels.md)
+Status: alpha.
 
-## Install · run
+## How it works
 
-```bash
-uvx pboy ui
-# pin: uvx pboy@0.1.0 ui
+```text
+chat message ──▶ event ──▶ matching hook runs ──▶ event complete ──▶ reply in chat
+ (Telegram/Slack)  (CloudEvent)  (your command,        (CLI or HTTP)     (--sync telegram)
+                                  event JSON on stdin)
 ```
 
-Open [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui).
+- An **event** is a CloudEvents-shaped record of something that happened, e.g. a Telegram message.
+- A **hook** is a command you register for a **topic** such as `telegram:message`.
+  When a matching event arrives, Pageboy spawns the command and streams the event to it.
+- **Completing** an event records the outcome and can optionally post a reply back to the chat.
 
-No login — API and UI are reachable only from this machine (loopback).
-
-| Path | Role |
-|------|------|
-| `/ui` | Hooks · events · executions |
-| `/ui/settings` | Telegram / Slack tokens · channel on/off · Telegram allowlist pairing |
-
-Default data locations: DB `~/.local/share/pboy/pboy.db` · encryption key `~/.config/pboy/secret.key`
-
-## First scenario (Telegram)
-
-1. Create a bot token with [@BotFather](https://t.me/BotFather).
-2. In `/ui/settings`: paste the Telegram token → save → **Enable** → **pair your chat** with the 6-digit code (or fill the Allowlist field). Prefer this UI path over env vars.
-   An empty allowlist allows **any** chat that messages the bot — pair before attaching sensitive hooks.
-3. Register a hook (second shell while the daemon is up — CLI auto-connects to `http://127.0.0.1:8080`):
+## Quick start
 
 ```bash
-uvx pboy hook register \
-  --name tg-echo \
-  --topic 'telegram:message' \
-  --exec 'echo hello-from-pboy' \
-  --timeout 30
+uvx pboy ui            # starts the daemon + dashboard (pin a version: uvx pboy@0.2.0 ui)
 ```
 
-On Windows, if `echo` fails: `--exec 'cmd /c echo hello-from-pboy'`
+Open <http://127.0.0.1:8080/ui>. There is no login; it only accepts local connections.
+Leave this running and use a second terminal for the CLI. The CLI finds the running daemon automatically.
 
-4. Message the bot in Telegram → `/ui` shows the event and execution.
-5. (Optional) Reply via the bot:
+## First scenario: Telegram echo
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy its token.
+2. In <http://127.0.0.1:8080/ui/settings>, save the token, press **Enable**, then **pair your chat**.
+   > Until you pair a chat (or set an allowlist), **any** Telegram chat can trigger your hooks.
+3. Register a hook:
+
+   ```bash
+   uvx pboy hook register \
+     --name tg-echo \
+     --topic 'telegram:message' \
+     --exec 'echo hello-from-pboy' \
+     --timeout 30
+   ```
+
+   On Windows, use `--exec 'cmd /c echo hello-from-pboy'`.
+4. Message the bot. The event and the hook execution appear in `/ui`.
+5. Reply to the chat by completing the event (find the id in `/ui` or `pboy event list`):
+
+   ```bash
+   uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
+   ```
+
+## Writing hooks
+
+A hook command receives:
+
+| Input | Contents |
+|-------|----------|
+| stdin | The event as JSON (see below) |
+| `PB_EVENT_ID` | Event id; `pboy event complete` uses it by default |
+| `PB_SOURCE` | `telegram`, `slack`, … |
+| `PB_HOOK_NAME` | Name of the hook being run |
+| `PB_LEASE_TOKEN` | Lease token, when the event is leased |
+
+A Telegram message event looks like this (abridged):
+
+```json
+{
+  "id": "evt_20261017_2a51bd08c4a9",
+  "source": "telegram",
+  "type": "com.telegram.message.received",
+  "data": {
+    "channel_id": "123456789",
+    "actor": {"id": "987654321", "display_name": "alice"},
+    "summary": "hello"
+  }
+}
+```
+
+So a hook can read the message, do its work, and reply in one script:
 
 ```bash
-uvx pboy event complete <event_id> --summary 'Resolved' --sync telegram
+#!/usr/bin/env bash
+text=$(jq -r '.data.summary')
+result=$(do-something-with "$text")
+pboy event complete --summary "$result" --sync telegram   # uses $PB_EVENT_ID
 ```
 
-Slack needs both a **bot token (`xoxb-`)** and an **app token (`xapp-`, `connections:write`)** for Socket Mode. Full steps: [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
+**Topics:** `telegram:message`, `slack:message`, `jira:issue.created`, `jira:issue.updated`,
+`confluence:page.updated`.
 
-## Operator guide
+**Filters** narrow a topic further. Only `==` and `!=` on a field path are supported;
+any other expression matches nothing (it fails closed):
 
-Deploy/restart, happy-path checklist, channel/hook/`--daemon-url` split-brain and 403 troubleshooting:
-[`docs/operator.md`](docs/operator.md)
+```bash
+uvx pboy hook register --name ping --topic 'telegram:message' \
+  --filter '.data.summary == "ping"' --exec './pong.sh'
+```
 
-## Security (short)
+## Channels
 
-Pageboy is **local-only**. It binds loopback only; every request must come from the same machine with a local `Host`. LAN / `0.0.0.0` are not supported. **Do not put a reverse proxy in front** (rewriting `Host` to `localhost` makes remote clients look local). Other local users/processes on the same machine can also reach the daemon.
+Configure every channel in `/ui/settings`. Secrets are stored encrypted in the local database,
+and there are no env-var overrides for tokens.
 
-Production checklist · Telegram SSRF policy (fixed `api.telegram.org`, no user-controlled URLs) · inbound allowlist · local API/execution disclosure · known limits:
-[`docs/security-contract.md`](docs/security-contract.md)
+### Telegram: two separate connections
 
-Layman path needs **no environment variables** — configure channels in `/ui/settings`.  
-CLI / `PB_*` overrides (split-brain, tokens, paths): [`docs/operator.md`](docs/operator.md#environment-variables-pb-advanced).
+| | Bot token | App API (user account) |
+|---|---|---|
+| Purpose | Messages to your bot trigger hooks | Read and export chats your own account is in |
+| Credentials | Token from @BotFather | `api_id` / `api_hash` from [my.telegram.org](https://my.telegram.org), plus a one-time account connect (phone + code) |
+| Used by | The daemon and hooks | `pboy telegram …` commands |
 
-## Common commands
+The bot token alone cannot list your chats; the App API does not trigger hooks.
+
+```bash
+uvx pboy telegram chats
+uvx pboy telegram messages <chat> --limit 100
+uvx pboy telegram download <chat> <message_id>
+uvx pboy telegram export <chat> --out chat.jsonl --format jsonl   # or md, csv
+```
+
+### Slack
+
+Socket Mode needs a bot token (`xoxb-…`) and an app-level token (`xapp-…` with
+`connections:write`). Save both in `/ui/settings` and enable the channel.
+
+Full setup for both channels: [`src/pboy/channels/README.md`](src/pboy/channels/README.md).
+
+## CLI reference
 
 ```bash
 uvx pboy --help
-uvx pboy channel list
-uvx pboy hook register --name ... --topic 'telegram:message' --exec '...' --timeout 30
+
+# hooks
+uvx pboy hook register --name … --topic … --exec … [--filter …] [--timeout 30]
+uvx pboy hook list
+uvx pboy hook delete <name>
+
+# events
 uvx pboy event list
-uvx pboy event get <id>            # omit execution stdout/stderr
-uvx pboy event get <id> --verbose  # include streams (local trust)
-uvx pboy event complete <id> --summary '...' --sync telegram
+uvx pboy event get <id>                # without execution output
+uvx pboy event get <id> --verbose      # include hook stdout/stderr
+uvx pboy event complete <id> --summary '…' --sync telegram
+
+# channels
+uvx pboy channel list
+uvx pboy channel enable telegram
 ```
 
-## Developers
+If the daemon runs on a non-default port, pass `--daemon-url http://127.0.0.1:<port>`.
+
+## HTTP API
+
+While the daemon is running, interactive docs are at <http://127.0.0.1:8080/docs>
+(schema: `/openapi.json`).
+
+Inject an event (Telegram-shaped payload):
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "source": "telegram",
+    "payload": {
+      "message": {
+        "message_id": 42,
+        "chat": {"id": 123456789},
+        "from": {"id": 987654321, "username": "alice"},
+        "text": "hello from curl"
+      }
+    }
+  }'
+```
+
+Complete an event. Over HTTP, `sync` is a JSON array; the CLI's `--sync` is comma-separated:
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/events/<event_id>/complete \
+  -H 'Content-Type: application/json' \
+  -d '{"summary": "Resolved", "sync": ["telegram"]}'
+```
+
+Payload shapes for Slack, Jira, Confluence and generic events: see the OpenAPI examples and
+[`docs/operator.md`](docs/operator.md).
+
+## Security
+
+The daemon binds to loopback and only accepts a local `Host`; do not put it behind a reverse proxy.
+**Any process on this machine that can reach the port has full API access**, and that includes
+registering hooks, which means running commands.
+
+Checklist, allowlist guidance, SSRF policy and App API session risks:
+[`docs/security-contract.md`](docs/security-contract.md).
+
+## Configuration and data
+
+- Channel secrets and enablement: `/ui/settings` (or `pboy channel set-secret` / `enable`).
+- Database: `~/.local/share/pboy/pboy.db`
+- Encryption key: `~/.config/pboy/secret.key`
+- Advanced `PB_*` environment knobs: [`docs/operator.md`](docs/operator.md#environment-variables-pb_-advanced).
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [`docs/operator.md`](docs/operator.md) | Deploy, happy path, troubleshooting |
+| [`docs/security-contract.md`](docs/security-contract.md) | Threat model and checklist |
+| [`docs/architecture-channels.md`](docs/architecture-channels.md) | Wake-up channels vs Jira/Confluence agent REST |
+| [`src/pboy/channels/README.md`](src/pboy/channels/README.md) | Telegram / Slack in detail |
+| [`src/pboy/ui/README.md`](src/pboy/ui/README.md) | Dashboard notes |
+| [`docs/releasing.md`](docs/releasing.md) | Release process (maintainers) |
+| [`ROADMAP.md`](ROADMAP.md) · [Issues](https://github.com/fritzprix/pboy/issues) | Plans and bug reports |
+
+## Development
 
 ```bash
 git clone https://github.com/fritzprix/pboy.git
@@ -92,107 +230,6 @@ uv run pytest -q
 uv run ruff check src tests
 uv run mypy src
 ./scripts/smoke_demo.sh
-```
-
-Ops / `PB_*` env: [`docs/operator.md`](docs/operator.md) · Security: [`docs/security-contract.md`](docs/security-contract.md)  
-Release: [`docs/releasing.md`](docs/releasing.md) · skill `release patch|minor|major`  
-Roadmap: [`ROADMAP.md`](ROADMAP.md) · [Issues](https://github.com/fritzprix/pboy/issues)  
-UI / channels: [`src/pboy/ui/README.md`](src/pboy/ui/README.md) · [`src/pboy/channels/README.md`](src/pboy/channels/README.md)
-
-### Filters
-
-Supported: `.path.to.field == "value"` / `!=`  
-Other expressions are fail-closed (never match).
-
-## HTTP API (direct calls)
-
-OpenAPI is available while the daemon is running at `http://127.0.0.1:8080/docs` (`/openapi.json`).
-
-### 1. Event inject (`POST /v1/events`) — expected `payload` per `source`
-
-`POST /v1/events` normalizes platform fields into CloudEvent `data` (`summary`, `description`, `channel_id`, `entity_key`, `actor`, …) via `EventNormalizer`, based on `source` (`telegram` · `slack` · `jira` · `confluence` · `generic`). A `payload` shape that does not match `source` yields empty `data.summary` / `description`.
-
-- **Telegram** (`source: "telegram"`, topic `telegram:message`):
-  ```bash
-  curl -X POST http://127.0.0.1:8080/v1/events \
-    -H 'Content-Type: application/json' \
-    -d '{
-      "source": "telegram",
-      "payload": {
-        "message": {
-          "message_id": 42,
-          "chat": {"id": 123456789},
-          "from": {"id": 987654321, "username": "alice"},
-          "text": "hello from curl"
-        }
-      }
-    }'
-  ```
-- **Slack** (`source: "slack"`, topic `slack:message`):
-  ```json
-  {
-    "source": "slack",
-    "payload": {
-      "event": {
-        "client_msg_id": "msg-1",
-        "channel": "C01234567",
-        "thread_ts": "1700000000.000100",
-        "user": "U01234567",
-        "text": "deploy status?"
-      }
-    }
-  }
-  ```
-- **Jira** (`source: "jira"`, topics `jira:issue.created` / `jira:issue.updated`):
-  ```json
-  {
-    "source": "jira",
-    "payload": {
-      "webhookEvent": "jira:issue_created",
-      "issue": {
-        "id": "10001",
-        "key": "PROJ-123",
-        "fields": {
-          "summary": "Login page 500 error",
-          "description": "Steps to reproduce...",
-          "priority": {"name": "High"},
-          "project": {"key": "PROJ"},
-          "creator": {"accountId": "acc-1", "displayName": "Alice"},
-          "labels": ["bug"]
-        }
-      }
-    }
-  }
-  ```
-- **Confluence** (`source: "confluence"`, topic `confluence:page.updated`):
-  ```json
-  {
-    "source": "confluence",
-    "payload": {
-      "page": {
-        "id": "98765",
-        "title": "Runbook",
-        "body": {"storage": {"value": "<p>Updated content</p>"}},
-        "version": {"number": 2}
-      },
-      "space": {"key": "ENG"},
-      "user": {"accountId": "acc-1", "displayName": "Alice"}
-    }
-  }
-  ```
-- **Generic** (`source: "generic"`): `{"type": "com.custom.event", "data": {...}}` (or an arbitrary JSON object stored as `data`).
-
-### 2. Event complete (`POST /v1/events/{event_id}/complete`) — `sync` type
-
-- The CLI (`pboy event complete <id> --sync telegram`) accepts a comma-separated string, but the **HTTP API `sync` field is a string array (`list[str]`)** (e.g. `["telegram"]`).
-
-```bash
-curl -X POST http://127.0.0.1:8080/v1/events/<event_id>/complete \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "summary": "Resolved",
-    "sync": ["telegram"]
-  }'
 ```
 
 ## License
