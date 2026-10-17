@@ -98,11 +98,15 @@ class _PendingLogin:
 
 
 def mask_phone(phone: str) -> str:
-    """Mask the middle of a phone number for display (``+8210****5678``)."""
+    """Mask the middle of a phone number for display (``+821******678``).
+
+    At most a third of the characters stay visible at the front and a quarter at
+    the back, so short numbers are never shown nearly in full.
+    """
     text = phone.strip()
-    if len(text) <= 7:
-        return text[:2] + "*" * max(len(text) - 2, 0)
-    return text[:5] + "*" * (len(text) - 9) + text[-4:]
+    head = min(5, len(text) // 3)
+    tail = min(4, len(text) // 4)
+    return text[:head] + "*" * (len(text) - head - tail) + text[len(text) - tail :]
 
 
 def _parse_chat_target(chat: str | int) -> str | int:

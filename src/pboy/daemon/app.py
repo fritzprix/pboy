@@ -82,6 +82,8 @@ def create_app(
     app.state.db_path = str(store.db_path)
     app.state.channel_registry = registry
     app.state.telegram_app = telegram_app
+    # Resolve via app.state so a replaced service (tests) is the one cancelled.
+    registry.on_app_credentials_changed(lambda: app.state.telegram_app.cancel_login())
     app.state.ui_enabled = enable_ui
 
     @app.get("/healthz")

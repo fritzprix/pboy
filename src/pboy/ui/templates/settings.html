@@ -103,7 +103,7 @@
     <h3 class="subhead">{{ ag.title }}</h3>
     <p class="prose muted">{{ ag.blurb }}</p>
     <ol class="flow-steps" aria-label="계정 연결 진행 단계">
-      {% for label in ['1. App API 등록', '2. 전화번호', '3. 코드 확인', '연결됨'] %}
+      {% for label in ['1. App API 등록', '2. 전화번호', '3. 2FA 비밀번호' if step == 'password' else '3. 코드 확인', '연결됨'] %}
       <li class="{% if loop.index0 == pos %}current{% elif loop.index0 < pos %}done{% endif %}"
           {% if loop.index0 == pos %}aria-current="step"{% endif %}>{{ label }}</li>
       {% endfor %}

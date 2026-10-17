@@ -281,7 +281,7 @@ async def test_login_with_2fa_moves_to_password_step(store: SQLiteStore) -> None
 
     await service.request_login_code("+821012345678")
     assert service.login_step == "code"
-    assert service.pending_phone_masked == "+8210****5678"
+    assert service.pending_phone_masked == "+821******678"
 
     result = await service.verify_login_code("12345")
     assert result == {"authenticated": False, "password_required": True}
@@ -318,3 +318,18 @@ async def test_clearing_api_hash_clears_session(store: SQLiteStore) -> None:
     reg = ChannelRegistry(emit=_noop, store=store, settings=Settings())
     await reg.set_channel_secret("telegram", "", secret_name="api_hash")
     assert await store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY) == ""
+
+
+@pytest.mark.parametrize(
+    ("phone", "masked"),
+    [
+        ("+821012345678", "+821******678"),
+        ("+12345678", "+12****78"),
+        ("+1234", "+***4"),
+    ],
+)
+def test_mask_phone_hides_most_digits(phone: str, masked: str) -> None:
+    from pboy.channels.telegram_app import mask_phone
+
+    assert mask_phone(phone) == masked
+    assert masked.count("*") >= len(phone) // 3

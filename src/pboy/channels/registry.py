@@ -58,6 +58,15 @@ class ChannelRegistry:
         self._factories = dict(BUILTIN_FACTORIES if factories is None else factories)
         self._instances: dict[str, ChannelAdapter] = {}
         self._running: list[str] = []
+        self._app_credential_listeners: list[Callable[[], None]] = []
+
+    def on_app_credentials_changed(self, callback: Callable[[], None]) -> None:
+        """Call ``callback`` whenever ``telegram.api_id`` / ``api_hash`` change or clear.
+
+        The daemon uses this to drop an in-memory pending login, whichever path
+        (UI, HTTP API, CLI via daemon) changed the keys.
+        """
+        self._app_credential_listeners.append(callback)
 
     @property
     def running(self) -> list[str]:
@@ -178,6 +187,8 @@ class ChannelRegistry:
             and cleaned != previous_clean
         ):
             await self._store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "")
+            for callback in self._app_credential_listeners:
+                callback()
         return secret_key
 
     async def list_status(self) -> list[dict[str, Any]]:

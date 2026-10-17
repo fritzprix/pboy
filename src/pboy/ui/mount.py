@@ -207,13 +207,10 @@ def mount_ui(app: FastAPI) -> None:
                 f"/ui/settings?err={quote(str(exc))}",
                 status_code=303,
             )
-        service: TelegramAppService | None = getattr(
-            request.app.state, "telegram_app", None
-        )
-        if service is not None and name == "telegram" and secret_name in _APP_CREDENTIAL_NAMES:
-            service.cancel_login()
+        is_app_key = name == "telegram" and secret_name in _APP_CREDENTIAL_NAMES
+        anchor = _APP_ANCHOR if is_app_key else f"#channel-{name}"
         return RedirectResponse(
-            f"/ui/settings?saved={quote(f'{name}.{secret_name}')}",
+            f"/ui/settings?saved={quote(f'{name}.{secret_name}')}{anchor}",
             status_code=303,
         )
 

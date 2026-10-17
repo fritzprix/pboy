@@ -329,7 +329,7 @@ async def test_ui_settings_telegram_app_api_sequential_steps(tmp_path: Path) -> 
         await post("/ui/settings/channels/telegram/app-login-start", phone="+821012345678")
         body = await page()
         assert 'data-app-step="code"' in body
-        assert "+8210****5678" in body
+        assert "+821******678" in body
         assert 'action="/ui/settings/channels/telegram/app-login-start"' not in body
         assert 'name="password"' not in body
 
@@ -379,6 +379,41 @@ async def test_ui_settings_telegram_app_cancel_returns_to_phone(tmp_path: Path) 
         assert 'data-app-step="code"' in (await client.get("/ui/settings")).text
 
         await client.post("/ui/settings/channels/telegram/app-login-cancel")
+        assert 'data-app-step="phone"' in (await client.get("/ui/settings")).text
+
+
+@pytest.mark.asyncio
+async def test_api_key_change_cancels_pending_login(tmp_path: Path) -> None:
+    """HTTP API / CLI key changes must drop the in-memory login, not only the UI form."""
+    application = create_app(
+        db_path=tmp_path / "ui-app-api-key.db",
+        secret_key="ui-app-api-key",
+        enable_ui=True,
+    )
+    fake = _fake_telethon_client(needs_password=False)
+
+    async def factory(*_a: Any, **_k: Any) -> Any:
+        return fake
+
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        eng: Engine = application.state.engine
+        await eng.store.put_secret("telegram.api_id", "1")
+        await eng.store.put_secret("telegram.api_hash", "h")
+        service = TelegramAppService(store=eng.store, client_factory=factory)
+        application.state.telegram_app = service
+        await service.request_login_code("+821012345678")
+        assert service.login_step == "code"
+
+        res = await client.put(
+            "/v1/channels/telegram/secret",
+            json={"secret_name": "api_hash", "value": "new-hash"},
+        )
+        assert res.status_code == 200
+        assert service.login_step == "idle"
         assert 'data-app-step="phone"' in (await client.get("/ui/settings")).text
 
 
