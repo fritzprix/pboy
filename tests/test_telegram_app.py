@@ -153,3 +153,98 @@ async def test_list_chats_with_mock_client_factory(store: SQLiteStore) -> None:
     assert len(filtered) == 1
     empty = await service.list_chats(limit=10, search="zzz-no-match")
     assert empty == []
+
+
+def test_safe_chat_segment_rejects_traversal() -> None:
+    from pboy.channels.telegram_app import _safe_chat_segment
+
+    assert _safe_chat_segment(-1001) == "-1001"
+    assert _safe_chat_segment("@alice") == "alice"
+    with pytest.raises(ValueError, match="Invalid chat path"):
+        _safe_chat_segment("..")
+    with pytest.raises(ValueError, match="Invalid chat path"):
+        _safe_chat_segment("../escape")
+    with pytest.raises(ValueError, match="Invalid chat path"):
+        _safe_chat_segment("a\\b")
+
+
+def test_build_get_messages_kwargs_reverse_until() -> None:
+    from pboy.channels.telegram_app import _build_get_messages_kwargs
+
+    since = datetime(2024, 1, 1, tzinfo=UTC)
+    until = datetime(2024, 6, 1, tzinfo=UTC)
+
+    kwargs, client_since, client_until = _build_get_messages_kwargs(
+        limit=10,
+        offset_id=0,
+        min_id=0,
+        max_id=0,
+        since_dt=since,
+        until_dt=until,
+        search=None,
+        from_user=None,
+        reverse=False,
+    )
+    assert kwargs["offset_date"] == until
+    assert client_since == since
+    assert client_until is None
+
+    kwargs_r, client_since_r, client_until_r = _build_get_messages_kwargs(
+        limit=10,
+        offset_id=0,
+        min_id=0,
+        max_id=0,
+        since_dt=since,
+        until_dt=until,
+        search=None,
+        from_user=None,
+        reverse=True,
+    )
+    assert kwargs_r["offset_date"] == since
+    assert client_since_r is None
+    assert client_until_r == until
+
+
+@pytest.mark.asyncio
+async def test_list_chats_maps_telethon_rpc_error(store: SQLiteStore) -> None:
+    await store.put_secret(TELEGRAM_API_ID_SECRET_KEY, "99")
+    await store.put_secret(TELEGRAM_API_HASH_SECRET_KEY, "abc")
+    await store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "sess")
+
+    from telethon.errors import FloodWaitError
+
+    client = AsyncMock()
+    client.get_dialogs = AsyncMock(side_effect=FloodWaitError(request=None, capture=5))
+    client.disconnect = AsyncMock()
+
+    async def factory(*_a: Any, **_k: Any) -> Any:
+        return client
+
+    service = TelegramAppService(store=store, client_factory=factory)
+    with pytest.raises(RuntimeError, match="Telegram API error"):
+        await service.list_chats()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_clears_app_session(store: SQLiteStore) -> None:
+    await store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "sess")
+    service = TelegramAppService(store=store)
+    await service.disconnect_account()
+    assert await store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY) == ""
+
+
+@pytest.mark.asyncio
+async def test_changing_api_id_clears_session(store: SQLiteStore) -> None:
+    from pboy.channels.registry import ChannelRegistry
+    from pboy.core.config import Settings
+
+    await store.put_secret(TELEGRAM_API_ID_SECRET_KEY, "111")
+    await store.put_secret(TELEGRAM_API_HASH_SECRET_KEY, "hash")
+    await store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "sess")
+
+    async def _noop(*_a: Any, **_k: Any) -> None:
+        return None
+
+    reg = ChannelRegistry(emit=_noop, store=store, settings=Settings())
+    await reg.set_channel_secret("telegram", "222", secret_name="api_id")
+    assert await store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY) == ""

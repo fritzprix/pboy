@@ -128,7 +128,6 @@ def mount_ui(app: FastAPI) -> None:
                 "channels": await _channel_rows(reg, engine=eng),
                 "jira_info": JIRA_INFO,
                 "harness_secrets": await _harness_secret_status(eng),
-                "env_override": False,
                 "flash_saved": saved,
                 "flash_err": err,
             }
@@ -270,6 +269,25 @@ def mount_ui(app: FastAPI) -> None:
         who = info.get("username") or info.get("user_id") or "ok"
         return RedirectResponse(
             f"/ui/settings?saved={quote(f'telegram.app_session (계정 연결 완료: {who})')}",
+            status_code=303,
+        )
+
+    @app.post(
+        "/ui/settings/channels/telegram/app-disconnect",
+        include_in_schema=False,
+    )
+    async def ui_telegram_app_disconnect(request: Request) -> RedirectResponse:
+        service: TelegramAppService | None = getattr(
+            request.app.state, "telegram_app", None
+        )
+        if service is None:
+            return RedirectResponse(
+                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
+                status_code=303,
+            )
+        await service.disconnect_account()
+        return RedirectResponse(
+            f"/ui/settings?saved={quote('telegram.app_session (계정 연결 해제)')}",
             status_code=303,
         )
 

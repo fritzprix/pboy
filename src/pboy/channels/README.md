@@ -11,7 +11,8 @@ call their REST APIs from the harness. See [`docs/architecture-channels.md`](../
 | File | Role |
 |------|------|
 | `base.py` | `ChannelAdapter` / `EventEmitter` protocols |
-| `registry.py` | Enable/start/stop via `PB_CHANNELS_ENABLED` |
+| `registry.py` | Enable/start/stop via encrypted store |
+| `telegram_app.py` | MTProto App API (dialogs / export; user account) |
 | `fake.py` | In-process fake adapter (tests / demos) |
 | `telegram.py` | Bot API long-poll (`getUpdates`) |
 | `slack.py` | Socket Mode (Events API over WebSocket) |
@@ -32,12 +33,7 @@ pboy daemon --host 127.0.0.1 --port 8080
 
 While the daemon is running on `127.0.0.1:8080`, `pboy channel …` commands automatically connect to the daemon HTTP API (and can start/stop adapters live). For custom ports, pass `--daemon-url http://127.0.0.1:<port>`.
 
-**Env override** (wins over store when the variable is set, including empty):
-
-```bash
-export PB_CHANNELS_ENABLED=telegram
-export PB_TELEGRAM_BOT_TOKEN='123456:ABC...'
-```
+Channel secrets and enablement are **store-only** (`/ui/settings` or `pboy channel set-secret` / `enable`). Removed env overrides (`PB_TELEGRAM_*` tokens/allowlist, `PB_SLACK_*`, `PB_CHANNELS_ENABLED`) log a loud error at daemon startup if still set.
 
 ## Telegram setup (BotFather)
 
@@ -172,6 +168,6 @@ pboy channel set-secret slack --secret-name app_token --value 'xapp-...'
 pboy channel enable slack
 ```
 
-Or env: `PB_SLACK_BOT_TOKEN` + `PB_SLACK_APP_TOKEN`.
+Prefer `/ui/settings` for both Slack tokens (store-only).
 
 3. Start daemon, register a hook on `slack:message`, then message the app.

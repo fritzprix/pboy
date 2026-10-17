@@ -899,7 +899,7 @@ def telegram_chats(
 
 @telegram_app.command("messages")
 def telegram_messages(
-    chat: Annotated[str, typer.Argument(help="Chat id, @username, or invite link target")],
+    chat: Annotated[str, typer.Argument(help="Chat id or @username (must already be in your dialogs)")],
     limit: Annotated[int, typer.Option("--limit")] = 50,
     offset_id: Annotated[int, typer.Option("--offset-id")] = 0,
     min_id: Annotated[int, typer.Option("--min-id")] = 0,

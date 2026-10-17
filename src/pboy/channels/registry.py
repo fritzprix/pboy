@@ -18,6 +18,11 @@ from pboy.channels.config import (
 from pboy.channels.fake import FakeChannel
 from pboy.channels.slack import build_slack_channel
 from pboy.channels.telegram import build_telegram_channel
+from pboy.channels.telegram_app import (
+    TELEGRAM_API_HASH_SECRET_KEY,
+    TELEGRAM_API_ID_SECRET_KEY,
+    TELEGRAM_APP_SESSION_SECRET_KEY,
+)
 from pboy.core.config import Settings, get_settings
 from pboy.store.base import StoreBase
 
@@ -164,7 +169,16 @@ class ChannelRegistry:
         cleaned = value.strip()
         if not cleaned and secret_key not in optional_secret_keys_for_channel(name):
             raise ValueError("Secret value must not be empty")
+        previous = await self._store.get_secret(secret_key)
+        previous_clean = previous.strip() if previous else ""
         await self._store.put_secret(secret_key, cleaned)
+        # Changing App API developer keys invalidates the stored user session.
+        if (
+            secret_key in {TELEGRAM_API_ID_SECRET_KEY, TELEGRAM_API_HASH_SECRET_KEY}
+            and cleaned
+            and cleaned != previous_clean
+        ):
+            await self._store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "")
         return secret_key
 
     async def list_status(self) -> list[dict[str, Any]]:

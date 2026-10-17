@@ -116,6 +116,106 @@ def _format_iso(dt: datetime | None) -> str | None:
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _safe_chat_segment(chat: str | int) -> str:
+    """Sanitize chat id for use under ``data_dir/files/telegram_app/``."""
+    text = str(chat).strip()
+    if not text or text in {".", ".."} or "\\" in text or "/" in text:
+        raise ValueError(
+            f"Invalid chat path segment {chat!r}: use a numeric id or @username "
+            "(no path separators or '..')."
+        )
+    cleaned = text.replace("@", "")
+    if not cleaned or ".." in cleaned or cleaned.startswith("."):
+        raise ValueError(f"Invalid chat path segment {chat!r}")
+    return cleaned
+
+
+def _map_telethon_error(exc: BaseException) -> RuntimeError | None:
+    """Map Telethon RPC errors to RuntimeError for UI/CLI (avoid HTTP 500 / traceback)."""
+    try:
+        from telethon.errors import RPCError  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+    if isinstance(exc, RPCError):
+        return RuntimeError(f"Telegram API error: {exc}")
+    return None
+
+
+def _raise_mapped_telethon(exc: BaseException) -> None:
+    mapped = _map_telethon_error(exc)
+    if mapped is not None:
+        raise mapped from exc
+
+
+def _normalize_msg_date(msg_date: datetime) -> datetime:
+    if msg_date.tzinfo is None:
+        return msg_date.replace(tzinfo=UTC)
+    return msg_date
+
+
+def _message_in_range(
+    msg_date: Any,
+    *,
+    since_dt: datetime | None,
+    until_dt: datetime | None,
+) -> bool:
+    if not isinstance(msg_date, datetime):
+        return True
+    cmp_date = _normalize_msg_date(msg_date)
+    if since_dt is not None and cmp_date < since_dt:
+        return False
+    return not (until_dt is not None and cmp_date > until_dt)
+
+
+def _build_get_messages_kwargs(
+    *,
+    limit: int,
+    offset_id: int,
+    min_id: int,
+    max_id: int,
+    since_dt: datetime | None,
+    until_dt: datetime | None,
+    search: str | None,
+    from_user: str | None,
+    reverse: bool,
+) -> tuple[dict[str, Any], datetime | None, datetime | None]:
+    """Build Telethon ``get_messages`` kwargs and client-side date filters.
+
+    Telethon's ``offset_date`` meaning flips with ``reverse``: without reverse it is
+    an upper bound (older than); with reverse it is a lower bound (newer than).
+    We therefore pass the bound Telethon can express and filter the other side
+    in-process.
+    """
+    kwargs: dict[str, Any] = {
+        "limit": limit,
+        "offset_id": offset_id,
+        "min_id": min_id,
+        "max_id": max_id,
+        "reverse": reverse,
+    }
+    client_since = since_dt
+    client_until = until_dt
+    if reverse:
+        if since_dt is not None:
+            kwargs["offset_date"] = since_dt
+            client_since = None
+    elif until_dt is not None:
+        kwargs["offset_date"] = until_dt
+        client_until = None
+    if search and search.strip():
+        kwargs["search"] = search.strip()
+    if from_user and from_user.strip():
+        kwargs["from_user"] = _parse_chat_target(from_user)
+    return kwargs, client_since, client_until
+
+
+def _next_offset_id(items: list[dict[str, Any]], *, reverse: bool) -> int | None:
+    ids = [int(m["id"]) for m in items if isinstance(m.get("id"), int)]
+    if not ids:
+        return None
+    return max(ids) if reverse else min(ids)
+
+
 def _extract_sender_dict(msg: Any) -> dict[str, Any] | None:
     sender = getattr(msg, "sender", None)
     sender_id = getattr(msg, "sender_id", None)
@@ -342,7 +442,11 @@ class TelegramAppService:
         creds = await resolve_telegram_app_credentials(self._store, require_auth=False)
         client = await self._open_client(creds, session_override="", authenticate=False)
         try:
-            sent = await client.send_code_request(cleaned_phone)
+            try:
+                sent = await client.send_code_request(cleaned_phone)
+            except Exception as exc:
+                _raise_mapped_telethon(exc)
+                raise
             temp_session = client.session.save()
             self._pending_login = (cleaned_phone, sent.phone_code_hash, temp_session)
             return {
@@ -386,8 +490,13 @@ class TelegramAppService:
                         raise ValueError(
                             "2단계 인증(2FA) 비밀번호가 설정된 계정입니다. 비밀번호 입력란도 함께 채워 주세요."
                         ) from exc
-                    await client.sign_in(password=password.strip())
+                    try:
+                        await client.sign_in(password=password.strip())
+                    except Exception as pwd_exc:
+                        _raise_mapped_telethon(pwd_exc)
+                        raise ValueError(f"Telegram 로그인 실패: {pwd_exc}") from pwd_exc
                 else:
+                    _raise_mapped_telethon(exc)
                     raise ValueError(f"Telegram 로그인 실패: {exc}") from exc
 
             session_str = str(client.session.save())
@@ -402,6 +511,11 @@ class TelegramAppService:
         finally:
             await client.disconnect()
 
+    async def disconnect_account(self) -> None:
+        """Clear stored ``telegram.app_session`` (account disconnect)."""
+        await self._store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "")
+        self._pending_login = None
+
     async def list_chats(
         self,
         *,
@@ -412,7 +526,11 @@ class TelegramAppService:
         creds = await resolve_telegram_app_credentials(self._store, require_auth=True)
         client = await self._open_client(creds)
         try:
-            dialogs = await client.get_dialogs(limit=limit)
+            try:
+                dialogs = await client.get_dialogs(limit=limit)
+            except Exception as exc:
+                _raise_mapped_telethon(exc)
+                raise
             rows = [serialize_dialog(d) for d in dialogs]
             if search and search.strip():
                 needle = search.strip().lower()
@@ -447,47 +565,39 @@ class TelegramAppService:
         target = _parse_chat_target(chat)
         since_dt = _parse_iso_datetime(since)
         until_dt = _parse_iso_datetime(until)
+        kwargs, client_since, client_until = _build_get_messages_kwargs(
+            limit=limit,
+            offset_id=offset_id,
+            min_id=min_id,
+            max_id=max_id,
+            since_dt=since_dt,
+            until_dt=until_dt,
+            search=search,
+            from_user=from_user,
+            reverse=reverse,
+        )
         try:
-            kwargs: dict[str, Any] = {
-                "limit": limit,
-                "offset_id": offset_id,
-                "min_id": min_id,
-                "max_id": max_id,
-                "reverse": reverse,
-            }
-            if until_dt is not None:
-                kwargs["offset_date"] = until_dt
-            if search and search.strip():
-                kwargs["search"] = search.strip()
-            if from_user and from_user.strip():
-                kwargs["from_user"] = _parse_chat_target(from_user)
-
-            raw_messages = await client.get_messages(target, **kwargs)
+            try:
+                raw_messages = await client.get_messages(target, **kwargs)
+            except Exception as exc:
+                _raise_mapped_telethon(exc)
+                raise
             items: list[dict[str, Any]] = []
             for msg in raw_messages:
-                msg_date = getattr(msg, "date", None)
-                if since_dt is not None and isinstance(msg_date, datetime):
-                    cmp_date = (
-                        msg_date.replace(tzinfo=UTC)
-                        if msg_date.tzinfo is None
-                        else msg_date
-                    )
-                    if cmp_date < since_dt:
-                        continue
+                if not _message_in_range(
+                    getattr(msg, "date", None),
+                    since_dt=client_since,
+                    until_dt=client_until,
+                ):
+                    continue
                 items.append(serialize_message(msg))
-
-            next_offset_id: int | None = None
-            if items:
-                ids = [int(m["id"]) for m in items if isinstance(m.get("id"), int)]
-                if ids:
-                    next_offset_id = max(ids) if reverse else min(ids)
 
             return {
                 "chat": str(chat),
                 "count": len(items),
                 "limit": limit,
                 "offset_id": offset_id,
-                "next_offset_id": next_offset_id,
+                "next_offset_id": _next_offset_id(items, reverse=reverse),
                 "has_more": len(raw_messages) >= limit,
                 "messages": items,
             }
@@ -506,7 +616,11 @@ class TelegramAppService:
         client = await self._open_client(creds)
         target = _parse_chat_target(chat)
         try:
-            fetched = await client.get_messages(target, ids=message_id)
+            try:
+                fetched = await client.get_messages(target, ids=message_id)
+            except Exception as exc:
+                _raise_mapped_telethon(exc)
+                raise
             msg = fetched[0] if isinstance(fetched, list) and fetched else fetched
             if msg is None:
                 raise LookupError(f"Message {message_id} not found in chat {chat!r}")
@@ -520,7 +634,7 @@ class TelegramAppService:
                 else:
                     dest.parent.mkdir(parents=True, exist_ok=True)
             else:
-                safe_chat = str(chat).strip().replace("/", "_").replace("@", "")
+                safe_chat = _safe_chat_segment(chat)
                 dest = (
                     Path(self._settings.data_dir)
                     / "files"
@@ -530,7 +644,11 @@ class TelegramAppService:
                 )
                 dest.mkdir(parents=True, exist_ok=True)
 
-            saved = await client.download_media(msg, file=str(dest))
+            try:
+                saved = await client.download_media(msg, file=str(dest))
+            except Exception as exc:
+                _raise_mapped_telethon(exc)
+                raise
             if not saved:
                 raise RuntimeError(
                     f"Failed to download media for message {message_id} in chat {chat!r}"
@@ -564,6 +682,8 @@ class TelegramAppService:
         media_dir: str | Path | None = None,
     ) -> dict[str, Any]:
         """Export messages from `chat` into an analysis-friendly file (`jsonl`, `md`, or `csv`)."""
+        from loguru import logger
+
         creds = await resolve_telegram_app_credentials(self._store, require_auth=True)
         client = await self._open_client(creds)
         target = _parse_chat_target(chat)
@@ -575,46 +695,58 @@ class TelegramAppService:
         if media_dir is not None:
             media_root = Path(media_dir).expanduser().resolve()
         else:
-            safe_chat = str(chat).strip().replace("/", "_").replace("@", "")
             media_root = (
-                Path(self._settings.data_dir) / "files" / "telegram_app" / safe_chat
+                Path(self._settings.data_dir)
+                / "files"
+                / "telegram_app"
+                / _safe_chat_segment(chat)
             )
 
-        try:
-            kwargs: dict[str, Any] = {
-                "limit": limit,
-                "offset_id": offset_id,
-                "min_id": min_id,
-                "max_id": max_id,
-                "reverse": reverse,
-            }
-            if until_dt is not None:
-                kwargs["offset_date"] = until_dt
-            if search and search.strip():
-                kwargs["search"] = search.strip()
-            if from_user and from_user.strip():
-                kwargs["from_user"] = _parse_chat_target(from_user)
+        kwargs, client_since, client_until = _build_get_messages_kwargs(
+            limit=limit,
+            offset_id=offset_id,
+            min_id=min_id,
+            max_id=max_id,
+            since_dt=since_dt,
+            until_dt=until_dt,
+            search=search,
+            from_user=from_user,
+            reverse=reverse,
+        )
 
-            raw_messages = await client.get_messages(target, **kwargs)
+        try:
+            try:
+                raw_messages = await client.get_messages(target, **kwargs)
+            except Exception as exc:
+                _raise_mapped_telethon(exc)
+                raise
             items: list[dict[str, Any]] = []
             downloaded_files = 0
+            download_failures = 0
             for msg in raw_messages:
-                msg_date = getattr(msg, "date", None)
-                if since_dt is not None and isinstance(msg_date, datetime):
-                    cmp_date = (
-                        msg_date.replace(tzinfo=UTC)
-                        if msg_date.tzinfo is None
-                        else msg_date
-                    )
-                    if cmp_date < since_dt:
-                        continue
+                if not _message_in_range(
+                    getattr(msg, "date", None),
+                    since_dt=client_since,
+                    until_dt=client_until,
+                ):
+                    continue
 
                 local_media_path: str | None = None
                 if download_media and getattr(msg, "media", None) is not None:
                     msg_id = getattr(msg, "id", "unknown")
                     msg_dir = media_root / str(msg_id)
                     msg_dir.mkdir(parents=True, exist_ok=True)
-                    saved = await client.download_media(msg, file=str(msg_dir))
+                    try:
+                        saved = await client.download_media(msg, file=str(msg_dir))
+                    except Exception as exc:
+                        download_failures += 1
+                        logger.warning(
+                            "telegram_app.export media download failed chat={} msg={} err={}",
+                            chat,
+                            msg_id,
+                            exc,
+                        )
+                        saved = None
                     if saved:
                         local_media_path = str(Path(saved).resolve())
                         downloaded_files += 1
@@ -624,19 +756,14 @@ class TelegramAppService:
             content = format_messages_export(items, fmt=fmt, chat_label=str(chat))
             dest_file.write_text(content, encoding="utf-8")
 
-            next_offset_id: int | None = None
-            if items:
-                ids = [int(m["id"]) for m in items if isinstance(m.get("id"), int)]
-                if ids:
-                    next_offset_id = max(ids) if reverse else min(ids)
-
             return {
                 "chat": str(chat),
                 "format": fmt,
                 "out_path": str(dest_file),
                 "count": len(items),
                 "downloaded_files": downloaded_files,
-                "next_offset_id": next_offset_id,
+                "download_failures": download_failures,
+                "next_offset_id": _next_offset_id(items, reverse=reverse),
                 "has_more": len(raw_messages) >= limit,
             }
         finally:

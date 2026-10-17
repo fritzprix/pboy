@@ -234,11 +234,9 @@ def create_app(
     @app.get("/v1/channels", response_model=ChannelListResponse)
     async def list_channels(request: Request) -> ChannelListResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
-        status = await reg.status()
         rows = await reg.list_status()
         return ChannelListResponse(
             channels=[ChannelStatusItem.model_validate(row) for row in rows],
-            env_override=bool(status.get("env_override")),
         )
 
     @app.post(
