@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -704,6 +705,9 @@ async def test_ui_settings_telegram_bot_bad_token_stays_on_enable(
         )
         assert enable.status_code == 303
         assert "err=" in enable.headers["location"]
+        # The flash banner is in the viewer's language too, not the English str(exc).
+        flash_err = parse_qs(urlsplit(enable.headers["location"]).query)["err"][0]
+        assert flash_err.startswith("봇 토큰이 거부되었습니다 (HTTP 401)")
 
         body = (await client.get("/ui/settings")).text
         assert 'data-bot-step="enable"' in body

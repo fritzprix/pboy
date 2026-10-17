@@ -37,6 +37,11 @@ PAIRING_TTL_SECONDS = 300.0
 class TelegramAuthError(RuntimeError):
     """Bot token rejected (HTTP 401/403) — do not keep polling."""
 
+    def __init__(self, message: str, *, status: int) -> None:
+        super().__init__(message)
+        self.i18n_key = "err.token_rejected"
+        self.i18n_params: dict[str, Any] = {"status": status}
+
 
 def parse_allowlist(raw: str | None) -> frozenset[str]:
     """Parse comma/whitespace-separated Telegram chat/user IDs into a set of strings."""
@@ -328,7 +333,7 @@ class TelegramChannel:
             msg = translate(DEFAULT_LANG, "err.token_rejected", **params)
             self._last_error = msg
             self._last_error_i18n = ("err.token_rejected", params)
-            raise TelegramAuthError(msg)
+            raise TelegramAuthError(msg, status=res.status_code)
 
     async def _verify_token(self) -> None:
         """Call ``getMe`` so a bad token fails before we claim to be receiving."""

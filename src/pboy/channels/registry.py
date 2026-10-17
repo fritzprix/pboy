@@ -24,6 +24,7 @@ from pboy.channels.telegram_app import (
     TELEGRAM_APP_SESSION_SECRET_KEY,
 )
 from pboy.core.config import Settings, get_settings
+from pboy.i18n import LocalizedError
 from pboy.store.base import StoreBase
 
 AdapterFactory = Callable[[EventEmitter, StoreBase, Settings], ChannelAdapter | None]
@@ -167,7 +168,9 @@ class ChannelRegistry:
         """Persist enablement and start the adapter if not already running."""
         key = name.strip().lower()
         if key not in self._factories and key not in self._instances:
-            raise ValueError(f"Unknown channel '{key}'. Known: {', '.join(self.known_names())}")
+            raise LocalizedError(
+                "err.unknown_channel", name=key, known=", ".join(self.known_names())
+            )
         enabled = await self.resolve_enabled_names()
         if key not in enabled:
             enabled.append(key)
@@ -201,7 +204,7 @@ class ChannelRegistry:
         secret_key = resolve_secret_key(name, secret_name)
         cleaned = value.strip()
         if not cleaned and secret_key not in optional_secret_keys_for_channel(name):
-            raise ValueError("Secret value must not be empty")
+            raise LocalizedError("err.secret_empty")
         previous = await self._store.get_secret(secret_key)
         previous_clean = previous.strip() if previous else ""
         await self._store.put_secret(secret_key, cleaned)

@@ -19,6 +19,7 @@ from pboy.i18n import (
     SUPPORTED_LANGS,
     LocalizedError,
     Translator,
+    localize_error,
     negotiate_lang,
     normalize_lang,
     translate,
@@ -57,6 +58,9 @@ def test_negotiate_lang() -> None:
     assert negotiate_lang("zh-TW") == "zh"
     assert negotiate_lang("es;q=0, fr;q=0.1") == "fr"
     assert negotiate_lang("de, it") == "en"
+    # q is case-insensitive and may follow other parameters.
+    assert negotiate_lang("ko;Q=0.1, en;q=0.5") == "en"
+    assert negotiate_lang("fr;level=1;q=0.1, ja;q=0.5") == "ja"
     assert normalize_lang("pt_BR") is None
     assert normalize_lang("FR-ca") == "fr"
 
@@ -180,3 +184,16 @@ async def test_pairing_message_uses_requested_language(tmp_path: Path) -> None:
         assert info["sent_immediately"] is True
         assert sent[-1]["text"].startswith("Código de verificación de Pageboy:")
         await channel._client.aclose()
+
+
+def test_localize_error_for_non_value_errors_and_registry() -> None:
+    from pboy.channels.telegram import TelegramAuthError
+
+    auth = TelegramAuthError("token rejected", status=401)
+    assert localize_error(auth, "ko").startswith("봇 토큰이 거부되었습니다 (HTTP 401)")
+    assert localize_error(RuntimeError("plain"), "ja") == "plain"
+    # Registry errors keep their English text for CLI/API callers.
+    unknown = LocalizedError("err.unknown_channel", name="irc", known="slack, telegram")
+    assert str(unknown) == "Unknown channel 'irc'. Known: slack, telegram"
+    assert str(LocalizedError("err.secret_empty")) == "Secret value must not be empty"
+    assert localize_error(unknown, "es") == "Canal desconocido «irc». Disponibles: slack, telegram"

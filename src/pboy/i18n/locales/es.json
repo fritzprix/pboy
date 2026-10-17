@@ -172,6 +172,8 @@
   "err.login_failed": "Error al iniciar sesión en Telegram: {detail}",
   "err.2fa_required": "Introduce la contraseña de verificación en dos pasos (2FA).",
   "err.verify_code_first": "Primero verifica el código de acceso.",
+  "err.unknown_channel": "Canal desconocido «{name}». Disponibles: {known}",
+  "err.secret_empty": "El valor del secreto no puede estar vacío.",
 
   "tg.pairing_message": "Código de verificación de Pageboy: {code}\n(Introduce estos 6 dígitos en la página de configuración.)",
 

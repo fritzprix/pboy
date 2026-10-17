@@ -172,6 +172,8 @@
   "err.login_failed": "Telegram 로그인 실패: {detail}",
   "err.2fa_required": "2단계 인증(2FA) 비밀번호를 입력해 주세요.",
   "err.verify_code_first": "먼저 인증 코드를 확인해 주세요.",
+  "err.unknown_channel": "알 수 없는 채널 '{name}'입니다. 사용 가능: {known}",
+  "err.secret_empty": "비밀값은 비워 둘 수 없습니다.",
 
   "tg.pairing_message": "Pageboy 인증 코드: {code}\n(설정 화면에 이 6자리 숫자를 입력하세요)",
 

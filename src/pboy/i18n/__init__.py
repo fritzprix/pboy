@@ -52,14 +52,15 @@ def negotiate_lang(accept_language: str | None) -> str:
         return DEFAULT_LANG
     ranked: list[tuple[float, int, str]] = []
     for idx, part in enumerate(accept_language.split(",")):
-        tag, _, params = part.strip().partition(";")
+        tag, *params = (piece.strip() for piece in part.split(";"))
         quality = 1.0
-        params = params.strip()
-        if params.startswith("q="):
-            try:
-                quality = float(params[2:])
-            except ValueError:
-                quality = 0.0
+        for param in params:
+            name, _, value = param.partition("=")
+            if name.strip().lower() == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0.0
         lang = normalize_lang(tag)
         if lang and quality > 0:
             ranked.append((-quality, idx, lang))
@@ -108,10 +109,26 @@ class LocalizedError(ValueError):
     def __init__(self, key: str, **params: Any) -> None:
         self.key = key
         self.params = params
+        self.i18n_key = key
+        self.i18n_params = params
         super().__init__(translate(DEFAULT_LANG, key, **params))
 
     def localized(self, lang: str) -> str:
         return translate(lang, self.key, **self.params)
+
+
+def localize_error(exc: BaseException, lang: str) -> str:
+    """Text for ``exc`` in ``lang``.
+
+    Any exception may opt in by setting ``i18n_key`` (and optional ``i18n_params``),
+    e.g. errors that must keep a non-``ValueError`` base class; others fall back to
+    ``str(exc)``.
+    """
+    key = getattr(exc, "i18n_key", None)
+    if isinstance(key, str):
+        params = getattr(exc, "i18n_params", None) or {}
+        return translate(lang, key, **params)
+    return str(exc)
 
 
 __all__ = [
@@ -121,6 +138,7 @@ __all__ = [
     "SUPPORTED_LANGS",
     "LocalizedError",
     "Translator",
+    "localize_error",
     "negotiate_lang",
     "normalize_lang",
     "translate",

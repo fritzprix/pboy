@@ -172,6 +172,8 @@
   "err.login_failed": "Telegram ログインに失敗しました: {detail}",
   "err.2fa_required": "2 段階認証（2FA）パスワードを入力してください。",
   "err.verify_code_first": "先に認証コードを確認してください。",
+  "err.unknown_channel": "不明なチャネル '{name}' です。利用可能: {known}",
+  "err.secret_empty": "シークレットの値を空にすることはできません。",
 
   "tg.pairing_message": "Pageboy 認証コード: {code}\n（設定画面にこの 6 桁の数字を入力してください）",
 
