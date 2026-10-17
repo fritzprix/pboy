@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+from pboy.channels.config import save_enabled_to_store
 from pboy.channels.fake import FakeChannel
 from pboy.channels.registry import ChannelRegistry
 from pboy.core.config import Settings
@@ -63,13 +64,7 @@ async def test_fake_push_requires_start(engine: Engine, sample_jira_payload: dic
 
 
 @pytest.mark.asyncio
-async def test_registry_starts_only_enabled(
-    engine: Engine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("PB_CHANNELS_ENABLED", raising=False)
-    from pboy.channels.config import save_enabled_to_store
-
+async def test_registry_starts_only_enabled(engine: Engine) -> None:
     await save_enabled_to_store(engine.store, ["fake"])
     settings = Settings()
     registry = ChannelRegistry(emit=engine.process_event, store=engine.store, settings=settings)
@@ -92,11 +87,7 @@ async def test_registry_starts_only_enabled(
 
 
 @pytest.mark.asyncio
-async def test_registry_empty_enabled_starts_nothing(
-    engine: Engine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("PB_CHANNELS_ENABLED", raising=False)
+async def test_registry_empty_enabled_starts_nothing(engine: Engine) -> None:
     settings = Settings()
     registry = ChannelRegistry(emit=engine.process_event, store=engine.store, settings=settings)
     registry.register(FakeChannel(emit=engine.process_event, name="fake"))
@@ -111,20 +102,20 @@ async def test_registry_empty_enabled_starts_nothing(
 async def test_daemon_lifespan_starts_enabled_fake(
     tmp_path: Path,
     sample_jira_payload: dict,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PB_CHANNELS_ENABLED", "fake")
-    import pboy.core.config as config_mod
+    db = tmp_path / "daemon-ch.db"
+    seed = SQLiteStore(db_path=db, secret_key="daemon-ch-key")
+    await seed.init_db()
+    await save_enabled_to_store(seed, ["fake"])
+    await seed.close()
 
-    monkeypatch.setattr(config_mod, "_settings", None)
     settings = Settings()
-    assert settings.enabled_channel_names() == ["fake"]
-
     app = create_app(
-        db_path=tmp_path / "daemon-ch.db",
+        db_path=db,
         secret_key="daemon-ch-key",
         settings=settings,
     )
+
     transport = ASGITransport(app=app)
     async with (
         app.router.lifespan_context(app),
@@ -153,15 +144,8 @@ async def test_daemon_lifespan_starts_enabled_fake(
 
 
 @pytest.mark.asyncio
-async def test_daemon_lifespan_skips_channels_when_disabled(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("PB_CHANNELS_ENABLED", raising=False)
-    import pboy.core.config as config_mod
-
-    monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(channels_enabled="")
+async def test_daemon_lifespan_skips_channels_when_disabled(tmp_path: Path) -> None:
+    settings = Settings()
 
     app = create_app(
         db_path=tmp_path / "daemon-off.db",

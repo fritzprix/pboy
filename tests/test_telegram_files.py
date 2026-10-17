@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
-from pboy.channels.telegram import TelegramChannel
+from pboy.channels.telegram import TELEGRAM_SECRET_KEY, TelegramChannel
 from pboy.core.config import Settings
 from pboy.core.engine import Engine
 from pboy.core.normalizer import EventNormalizer
@@ -82,8 +82,8 @@ def test_normalize_text_only_unchanged(sample_telegram_payload: dict) -> None:
 async def test_channel_downloads_photo_before_emit(
     tmp_path: Path, engine: Engine
 ) -> None:
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "tok")
     settings = Settings(
-        telegram_bot_token="tok",
         data_dir=tmp_path / "data",
         telegram_download_files=True,
     )
@@ -132,8 +132,8 @@ async def test_channel_downloads_photo_before_emit(
 async def test_channel_emits_metadata_when_download_fails(
     tmp_path: Path, engine: Engine
 ) -> None:
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "tok")
     settings = Settings(
-        telegram_bot_token="tok",
         data_dir=tmp_path / "data",
         telegram_download_files=True,
     )
@@ -167,7 +167,8 @@ async def test_outbound_send_photo_by_path(tmp_path: Path) -> None:
     photo.write_bytes(b"jpeg")
     store = SQLiteStore(db_path=tmp_path / "o.db", secret_key="k")
     await store.init_db()
-    settings = Settings(telegram_bot_token="tok", data_dir=tmp_path)
+    await store.put_secret(TELEGRAM_SECRET_KEY, "tok")
+    settings = Settings(data_dir=tmp_path)
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -265,9 +266,10 @@ async def test_complete_with_reply_file_after_successful_text_sync(
     files_root.mkdir()
     photo = files_root / "again.jpg"
     photo.write_bytes(b"jpeg")
-    settings = Settings(telegram_bot_token="tok", data_dir=tmp_path)
+    settings = Settings(data_dir=tmp_path)
     eng = Engine(store=store, settings=settings)
     await eng.start()
+    await eng.store.put_secret(TELEGRAM_SECRET_KEY, "tok")
     event = CloudEvent(
         source="telegram",
         type="com.telegram.message.received",
@@ -316,7 +318,8 @@ async def test_complete_with_reply_file_after_successful_text_sync(
 async def test_outbound_send_document_by_file_id(tmp_path: Path) -> None:
     store = SQLiteStore(db_path=tmp_path / "o2.db", secret_key="k")
     await store.init_db()
-    settings = Settings(telegram_bot_token="tok", data_dir=tmp_path)
+    await store.put_secret(TELEGRAM_SECRET_KEY, "tok")
+    settings = Settings(data_dir=tmp_path)
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -358,9 +361,9 @@ async def test_outbound_ignores_inbound_attachments_without_reply_file(
     """Without explicit reply_file, sync stays sendMessage even if event has attachments."""
     store = SQLiteStore(db_path=tmp_path / "c.db", secret_key="k")
     await store.init_db()
-    settings = Settings(telegram_bot_token="tok", data_dir=tmp_path)
+    await store.put_secret(TELEGRAM_SECRET_KEY, "tok")
+    settings = Settings(data_dir=tmp_path)
     seen: list[str] = []
-
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.url.path)
         return httpx.Response(

@@ -44,7 +44,8 @@ async def test_handle_update_dispatches_hook(
             timeout=30,
         )
     )
-    settings = Settings(telegram_bot_token="test-token")
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "test-token")
+    settings = Settings()
     async with httpx.AsyncClient() as client:
         channel = TelegramChannel(
             engine.process_event,
@@ -64,7 +65,7 @@ async def test_handle_update_dispatches_hook(
 
 @pytest.mark.asyncio
 async def test_start_requires_token(engine: Engine) -> None:
-    settings = Settings(telegram_bot_token="")
+    settings = Settings()
     async with httpx.AsyncClient() as client:
         channel = TelegramChannel(
             engine.process_event,
@@ -79,7 +80,7 @@ async def test_start_requires_token(engine: Engine) -> None:
 @pytest.mark.asyncio
 async def test_token_from_store_secret(engine: Engine) -> None:
     await engine.store.put_secret(TELEGRAM_SECRET_KEY, "stored-bot-token")
-    settings = Settings(telegram_bot_token="")
+    settings = Settings()
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -124,7 +125,8 @@ async def test_poll_loop_emits_recorded_update(
             timeout=30,
         )
     )
-    settings = Settings(telegram_bot_token="poll-token")
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "poll-token")
+    settings = Settings()
     state = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -175,7 +177,8 @@ async def test_poll_backoff_on_error_then_recovers(
     engine: Engine,
     sample_telegram_payload: dict,
 ) -> None:
-    settings = Settings(telegram_bot_token="backoff-token")
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "backoff-token")
+    settings = Settings()
     state = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -231,8 +234,9 @@ async def test_allowlist_blocks_unauthorized_update_and_skips_file_download(
     assert parse_allowlist("") == frozenset()
 
     # Configure allowlist in store that does NOT include sample chat (-1001) or user (991)
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "test-token")
     await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "999999999,-100555555")
-    settings = Settings(telegram_bot_token="test-token", data_dir=tmp_path)
+    settings = Settings(data_dir=tmp_path)
 
     get_file_called = False
 
@@ -277,19 +281,9 @@ async def test_allowlist_blocks_unauthorized_update_and_skips_file_download(
         )
         assert allowed_after_clear is not None
 
-        # Allow by chat.id (-1001) via env override -> passes
-        settings_env = Settings(
-            telegram_bot_token="test-token",
-            telegram_allowlist="-1001",
-            data_dir=tmp_path,
-        )
-        channel_env = TelegramChannel(
-            engine.process_event,
-            engine.store,
-            settings_env,
-            client=client,
-        )
-        allowed_chat = await channel_env.handle_update(
+        # Allow by chat.id (-1001) via store allowlist -> passes
+        await engine.store.put_secret(TELEGRAM_ALLOWLIST_SECRET_KEY, "-1001")
+        allowed_chat = await channel.handle_update(
             _update_from_sample(sample_telegram_payload, 2004)
         )
         assert allowed_chat is not None
@@ -306,7 +300,8 @@ async def test_telegram_pairing_code_flow(
 
     from pboy.channels.telegram import TELEGRAM_ALLOWLIST_SECRET_KEY
 
-    settings = Settings(telegram_bot_token="pair-token", data_dir=tmp_path)
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "pair-token")
+    settings = Settings(data_dir=tmp_path)
     sent_messages: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -359,5 +354,3 @@ async def test_telegram_pairing_code_flow(
         info2 = await channel.start_pairing()
         assert info2["sent_immediately"] is True
         assert len(sent_messages) == 2
-
-

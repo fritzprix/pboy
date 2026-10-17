@@ -4,23 +4,48 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pboy"
-description = "Zero-Ops Agent Event Orchestrator & Dispatcher"
+description = "Pageboy: local-first Zero-Ops event orchestrator — Telegram/Slack wake-ups to topic hooks (exec), CloudEvents, loopback-only daemon + UI"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [
     { name = "fritzprix" },
 ]
-keywords = ["agent", "event-bus", "cloud-events", "jira", "confluence", "telegram", "slack", "zero-ops"]
+keywords = [
+    "pageboy",
+    "pboy",
+    "telegram",
+    "telegram-bot",
+    "slack",
+    "slack-bot",
+    "socket-mode",
+    "cloudevents",
+    "event-orchestrator",
+    "local-first",
+    "zero-ops",
+    "fastapi",
+    "hooks",
+    "agent",
+    "jira",
+    "confluence",
+]
 dynamic = ["version"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
 ]
 
 dependencies = [
@@ -38,6 +63,7 @@ dependencies = [
     "uvicorn[standard]>=0.30,<1.0",
     "jinja2>=3.1,<4.0",
     "python-multipart>=0.0.9,<1.0",
+    "telethon>=1.45.0",
 ]
 
 [project.optional-dependencies]
@@ -54,8 +80,11 @@ pboy = "pboy.cli.main:main"
 pb = "pboy.cli.main:main"
 
 [project.urls]
-"Homepage" = "https://github.com/fritzprix/pboy"
-"Repository" = "https://github.com/fritzprix/pboy"
+Homepage = "https://github.com/fritzprix/pboy"
+Repository = "https://github.com/fritzprix/pboy"
+Documentation = "https://github.com/fritzprix/pboy/blob/main/docs/operator.md"
+Changelog = "https://github.com/fritzprix/pboy/blob/main/CHANGELOG.md"
+Issues = "https://github.com/fritzprix/pboy/issues"
 "Bug Tracker" = "https://github.com/fritzprix/pboy/issues"
 
 [tool.hatch.version]

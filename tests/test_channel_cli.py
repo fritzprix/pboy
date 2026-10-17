@@ -21,7 +21,6 @@ def test_channel_cli_roundtrip_local_store(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("PB_CHANNELS_ENABLED", raising=False)
     db = tmp_path / "cli-ch.db"
     monkeypatch.setenv("PB_DATABASE_URL", str(db))
     monkeypatch.setenv("PB_SECRET_KEY", "cli-channel-secret-key!!")
@@ -77,12 +76,10 @@ async def test_daemon_channel_api_set_secret_and_list(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("PB_CHANNELS_ENABLED", raising=False)
     import pboy.core.config as config_mod
 
     monkeypatch.setattr(config_mod, "_settings", None)
     settings = Settings()
-
     app_api = create_app(
         db_path=tmp_path / "api-ch.db",
         secret_key="api-ch-key",

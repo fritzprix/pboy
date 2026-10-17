@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -13,6 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from pboy.channels.registry import ChannelRegistry
+from pboy.channels.telegram_app import (
+    TELEGRAM_APP_SESSION_SECRET_KEY,
+    TelegramAppService,
+)
 from pboy.core.engine import Engine
 from pboy.ui.guides import (
     CHANNEL_GUIDES,
@@ -41,15 +44,14 @@ async def _channel_rows(
         for field in guide["fields"]:
             full_key = f"{name}.{field['secret_name']}"
             stored_val = await engine.store.get_secret(full_key)
-            in_store = bool(stored_val and stored_val.strip())
-            secret_flags[field["secret_name"]] = in_store or registry.env_covers_secret(
-                full_key
-            )
+            secret_flags[field["secret_name"]] = bool(stored_val and stored_val.strip())
 
         pairing_active = False
         if name == "telegram":
             adapter = registry.get("telegram")
             pairing_active = bool(getattr(adapter, "pairing_active", False))
+            session_val = await engine.store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY)
+            secret_flags["app_session"] = bool(session_val and session_val.strip())
 
         rows.append(
             {
@@ -126,7 +128,7 @@ def mount_ui(app: FastAPI) -> None:
                 "channels": await _channel_rows(reg, engine=eng),
                 "jira_info": JIRA_INFO,
                 "harness_secrets": await _harness_secret_status(eng),
-                "env_override": "PB_CHANNELS_ENABLED" in os.environ,
+                "env_override": False,
                 "flash_saved": saved,
                 "flash_err": err,
             }
@@ -207,6 +209,67 @@ def mount_ui(app: FastAPI) -> None:
             )
         return RedirectResponse(
             f"/ui/settings?saved={quote('telegram.allowlist (인증 코드로 대화방 등록 완료)')}",
+            status_code=303,
+        )
+
+    @app.post(
+        "/ui/settings/channels/telegram/app-login-start",
+        include_in_schema=False,
+    )
+    async def ui_telegram_app_login_start(
+        request: Request,
+        phone: str = Form(...),
+    ) -> RedirectResponse:
+        service: TelegramAppService | None = getattr(
+            request.app.state, "telegram_app", None
+        )
+        if service is None:
+            return RedirectResponse(
+                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
+                status_code=303,
+            )
+        try:
+            await service.request_login_code(phone)
+        except (ValueError, RuntimeError) as exc:
+            return RedirectResponse(
+                f"/ui/settings?err={quote(str(exc))}",
+                status_code=303,
+            )
+        return RedirectResponse(
+            f"/ui/settings?saved={quote('telegram-app-code-sent (텔레그램 앱으로 코드를 보냈습니다)')}",
+            status_code=303,
+        )
+
+    @app.post(
+        "/ui/settings/channels/telegram/app-login-verify",
+        include_in_schema=False,
+    )
+    async def ui_telegram_app_login_verify(
+        request: Request,
+        code: str = Form(...),
+        password: str = Form(default=""),
+    ) -> RedirectResponse:
+        service: TelegramAppService | None = getattr(
+            request.app.state, "telegram_app", None
+        )
+        if service is None:
+            return RedirectResponse(
+                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
+                status_code=303,
+            )
+        try:
+            info = await service.verify_login_code(
+                code,
+                password=password.strip() or None,
+            )
+        except (ValueError, RuntimeError) as exc:
+            return RedirectResponse(
+                f"/ui/settings?err={quote(str(exc))}",
+                status_code=303,
+            )
+        who = info.get("username") or info.get("user_id") or "ok"
+        return RedirectResponse(
+            f"/ui/settings?saved={quote(f'telegram.app_session (계정 연결 완료: {who})')}",
             status_code=303,
         )
 

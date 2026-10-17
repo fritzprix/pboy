@@ -46,6 +46,7 @@ from tests.contracts.spec import (
     HARNESS_ENV_REQUIRED,
     HARNESS_TERMINAL_STATUSES,
     ISO_TIME_RE,
+    SETTINGS_FORBIDDEN_CHANNEL_FIELDS,
     STORE_REQUIRED_METHODS,
     SYNC_TARGETS_SUPPORTED,
     TOPIC_TYPE_CONTRACT,
@@ -395,3 +396,12 @@ def test_contract_engine_signature_documents_dispatch() -> None:
     sig = inspect.signature(Engine.process_event)
     assert "dispatch" in sig.parameters
     assert sig.parameters["dispatch"].default is True
+
+
+def test_contract_settings_excludes_channel_secrets() -> None:
+    """Channel tokens/enablement are store-only; Settings must not reintroduce them."""
+    from pboy.core.config import Settings
+
+    fields = set(Settings.model_fields)
+    leaked = fields & SETTINGS_FORBIDDEN_CHANNEL_FIELDS
+    assert not leaked, f"Settings still exposes store-only channel fields: {sorted(leaked)}"

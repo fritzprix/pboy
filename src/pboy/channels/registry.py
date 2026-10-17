@@ -9,10 +9,8 @@ from loguru import logger
 
 from pboy.channels.base import ChannelAdapter, EventEmitter
 from pboy.channels.config import (
-    env_channels_enabled_override,
     load_enabled_from_store,
     optional_secret_keys_for_channel,
-    parse_enabled_names,
     resolve_secret_key,
     save_enabled_to_store,
     secret_keys_for_channel,
@@ -39,7 +37,7 @@ BUILTIN_FACTORIES: dict[str, AdapterFactory] = {
 
 
 class ChannelRegistry:
-    """Register adapters and start only those enabled via env or store."""
+    """Register adapters and start only those enabled in the persisted store."""
 
     def __init__(
         self,
@@ -75,10 +73,7 @@ class ChannelRegistry:
         return self._instances.get(name.strip().lower())
 
     async def resolve_enabled_names(self) -> list[str]:
-        """Env ``PB_CHANNELS_ENABLED`` overrides store when the variable is set."""
-        override = env_channels_enabled_override()
-        if override is not None:
-            return parse_enabled_names(override)
+        """Return enabled channel names from the encrypted store."""
         return await load_enabled_from_store(self._store)
 
     def _resolve(self, name: str) -> ChannelAdapter | None:
@@ -138,45 +133,20 @@ class ChannelRegistry:
         enabled = await self.resolve_enabled_names()
         if key not in enabled:
             enabled.append(key)
-            if env_channels_enabled_override() is None:
-                await save_enabled_to_store(self._store, enabled)
-            else:
-                logger.warning(
-                    "channel.enable name={} — PB_CHANNELS_ENABLED is set; "
-                    "store not updated (restart with env or unset override)",
-                    key,
-                )
+            await save_enabled_to_store(self._store, enabled)
         await self._start_one(key)
 
     async def disable(self, name: str) -> None:
         """Persist disablement and stop the adapter if running."""
         key = name.strip().lower()
         enabled = [n for n in await self.resolve_enabled_names() if n != key]
-        if env_channels_enabled_override() is None:
-            await save_enabled_to_store(self._store, enabled)
-        else:
-            logger.warning(
-                "channel.disable name={} — PB_CHANNELS_ENABLED is set; store not updated",
-                key,
-            )
+        await save_enabled_to_store(self._store, enabled)
         if key in self._running:
             adapter = self._instances.get(key)
             if adapter is not None:
                 await adapter.stop()
             self._running = [n for n in self._running if n != key]
             logger.info("channel.stopped name={}", key)
-
-    def env_covers_secret(self, secret_key: str) -> bool:
-        """True when the matching ``PB_*`` env already supplies this secret."""
-        if secret_key == "telegram.bot_token":
-            return bool(self._settings.telegram_bot_token.strip())
-        if secret_key == "telegram.allowlist":
-            return bool(self._settings.telegram_allowlist.strip())
-        if secret_key == "slack.bot_token":
-            return bool(self._settings.slack_bot_token.strip())
-        if secret_key == "slack.app_token":
-            return bool(self._settings.slack_app_token.strip())
-        return False
 
     async def set_channel_secret(
         self,
@@ -187,8 +157,8 @@ class ChannelRegistry:
     ) -> str:
         """Store the channel token/secret; returns the secret key used.
 
-        Optional secrets (e.g. ``telegram.allowlist``) accept an empty string to
-        clear the stored value; required secrets must be non-empty.
+        Optional secrets (e.g. ``telegram.allowlist``, ``telegram.api_id``) accept an
+        empty string to clear the stored value; required secrets must be non-empty.
         """
         secret_key = resolve_secret_key(name, secret_name)
         cleaned = value.strip()
@@ -206,9 +176,8 @@ class ChannelRegistry:
             has_secret = True
             if keys:
                 for sk in keys:
-                    if self.env_covers_secret(sk):
-                        continue
-                    if (await self._store.get_secret(sk)) is None:
+                    val = await self._store.get_secret(sk)
+                    if val is None or not val.strip():
                         has_secret = False
                         break
             else:
@@ -231,7 +200,6 @@ class ChannelRegistry:
             "enabled": await self.resolve_enabled_names(),
             "running": self.running,
             "known": self.known_names(),
-            "env_override": env_channels_enabled_override() is not None,
         }
 
 

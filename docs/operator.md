@@ -18,17 +18,21 @@ Do this once end-to-end before debugging anything else.
 
    Open [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui).
 
-2. **Enable Telegram** in `/ui/settings`: paste BotFather token → save → **Enable** → pair your chat (or set the **Allowlist**) so only authorized chats can trigger hooks.  
-   Or CLI (same machine; while the daemon is running on `127.0.0.1:8080`, CLI auto-connects to it):
+2. **Bot rail (wake-up)** in `/ui/settings`: paste BotFather token → save → **Enable** →
+   pair your chat (or set **Allowlist**) so only authorized chats can trigger hooks.
+   Secrets are store-only (no `PB_TELEGRAM_*`).
+
+3. **(Optional) App rail (dialogs / export)** — separate from the bot: save **App API ID/Hash**
+   from [my.telegram.org](https://my.telegram.org) → **계정 연결** (phone + code, optional 2FA).
+   Then:
 
    ```bash
-   uvx pboy channel set-secret telegram --value '<bot-token>'
-   uvx pboy channel set-secret telegram --secret-name allowlist --value '<your-chat-or-user-id>'
-   uvx pboy channel enable telegram
-   uvx pboy channel list   # expect enabled + running while daemon is up
+   uvx pboy telegram chats
+   uvx pboy telegram messages <chat> --limit 100
+   uvx pboy telegram export <chat> --out chat.jsonl --format jsonl
    ```
 
-3. **Register a hook** (second shell; auto-connects to the running daemon):
+4. **Register a hook** (second shell; auto-connects to the running daemon):
 
    ```bash
    uvx pboy hook register \
@@ -38,9 +42,9 @@ Do this once end-to-end before debugging anything else.
      --timeout 30
    ```
 
-4. **Message the bot** in Telegram → `/ui` shows event + execution.
+5. **Message the bot** in Telegram → `/ui` shows event + execution.
 
-5. **Complete + reply** (optional):
+6. **Complete + reply** (optional):
 
    ```bash
    uvx pboy event list
@@ -98,20 +102,17 @@ If the daemon runs on a custom port or isolated DB (`--db`) and you run the CLI 
 
 ### Environment variables (PB_*, advanced)
 
-**Layman / UI-only installs need none of these.** Configure tokens, allowlist (pairing),
-and channel enable in `/ui/settings`. The table below is for CLI operators, tests, and
-scripted installs. Prefer the store/UI; env is an override path.
+**Layman / UI-only installs need none of these.** Channel tokens, allowlist, App API
+keys, account connect, and channel enable live in `/ui/settings` (encrypted store) —
+**not** in `PB_TELEGRAM_*` / `PB_SLACK_*` / `PB_CHANNELS_ENABLED` (removed).
 
 | Variable | When to use | Notes |
 |----------|-------------|-------|
-| `PB_TELEGRAM_BOT_TOKEN` | Scripted token inject | Prefer UI/store. Non-empty env overrides store. |
-| `PB_TELEGRAM_ALLOWLIST` | Scripted allowlist | Prefer UI pairing/allowlist. Non-empty env overrides store. |
-| `PB_SLACK_BOT_TOKEN` / `PB_SLACK_APP_TOKEN` | Scripted Slack tokens | Prefer UI/store. |
-| `PB_CHANNELS_ENABLED` | Force enable list | If the variable is **present** (even `""`), it overrides store enable/disable. Easy to shoot yourself in the foot — leave unset for UI. |
 | `PB_DATABASE_URL` / `--db` | Isolated DB | Default: `~/.local/share/pboy/pboy.db`. When set, CLI uses this local DB directly unless `--daemon-url` is passed. |
 | `PB_SECRET_KEY` | Fixed key in tests/CI | Default: file at `~/.config/pboy/secret.key`. |
 | `PB_CONFIG_DIR` / `PB_DATA_DIR` | Custom paths | Defaults under `~/.config/pboy` and `~/.local/share/pboy`. |
 | `PB_HOST` / `PB_PORT` / `PB_LOG_LEVEL` | Bind / logging | Prefer `pboy ui` / `pboy daemon` flags when possible. |
+| `PB_TELEGRAM_DOWNLOAD_FILES` | Toggle inbound Bot API file download | Non-secret ops knob (default true). |
 
 Harness-injected (not operator config — set by the daemon for hook subprocesses):
 `PB_EVENT_ID`, `PB_SOURCE`, `PB_HOOK_NAME`, and optionally `PB_LEASE_TOKEN`.
@@ -166,12 +167,11 @@ uvx pboy status
    **running** (not only stopped-in-store).
 3. Telegram: token valid; BotFather bot started with `/start`; long-poll calls
    `deleteWebhook` on start — a competing webhook elsewhere will steal updates.
-4. Env vs store (check the daemon’s shell):
-   - `PB_CHANNELS_ENABLED` — if the variable is **present**, it overrides the store
-     even when empty (`""` disables all env-listed channels).
-   - `PB_TELEGRAM_BOT_TOKEN` / `PB_SLACK_*` — override the store only when
-     **non-empty** after strip; blank env falls back to stored secrets.
+4. Secrets must be in the store (`/ui/settings` or `pboy channel set-secret`) — channel
+   env overrides were removed.
 5. Slack: both `bot_token` and `app_token` (CLI: `--secret-name`); Socket Mode on.
+6. Dialog list / export fails? That is the **App rail** — need api_id/hash + account
+   connect in settings (bot token alone is not enough).
 
 ### Hook not matching / not running
 

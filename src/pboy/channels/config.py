@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 from pboy.store.base import StoreBase
 
 CHANNELS_ENABLED_SECRET = "channels.enabled"
@@ -14,9 +12,14 @@ CHANNEL_SECRET_KEYS: dict[str, tuple[str, ...]] = {
     "slack": ("slack.bot_token", "slack.app_token"),
 }
 
-# channel name → optional encrypted store secret keys (e.g. allowlists)
+# channel name → optional encrypted store secret keys (e.g. allowlists, MTProto App API)
 CHANNEL_OPTIONAL_SECRET_KEYS: dict[str, tuple[str, ...]] = {
-    "telegram": ("telegram.allowlist",),
+    "telegram": (
+        "telegram.allowlist",
+        "telegram.api_id",
+        "telegram.api_hash",
+        "telegram.app_session",
+    ),
 }
 
 
@@ -37,13 +40,6 @@ def parse_enabled_names(raw: str | None) -> list[str]:
 
 def format_enabled_names(names: list[str]) -> str:
     return ",".join(parse_enabled_names(",".join(names)))
-
-
-def env_channels_enabled_override() -> str | None:
-    """Return raw ``PB_CHANNELS_ENABLED`` when the env var is set (including empty)."""
-    if "PB_CHANNELS_ENABLED" in os.environ:
-        return os.environ["PB_CHANNELS_ENABLED"]
-    return None
 
 
 async def load_enabled_from_store(store: StoreBase) -> list[str]:
@@ -69,10 +65,11 @@ def all_secret_keys_for_channel(name: str) -> tuple[str, ...]:
 
 
 def resolve_secret_key(channel: str, secret_name: str | None = None) -> str:
-    """Resolve store key for ``pboy channel set-secret``.
+    """Resolve store key for ``pboy channel set-secret`` or UI settings.
 
     Single-secret channels (telegram) default to their primary key when ``secret_name``
-    is omitted, and also accept optional secret names (e.g. ``allowlist``).
+    is omitted, and also accept optional secret names (e.g. ``allowlist``, ``api_id``,
+    ``api_hash``, ``app_session``).
     Multi-secret channels (slack) require ``bot_token`` / ``app_token`` (or full key).
     """
     key = channel.strip().lower()
@@ -110,7 +107,6 @@ __all__ = [
     "CHANNEL_OPTIONAL_SECRET_KEYS",
     "CHANNEL_SECRET_KEYS",
     "all_secret_keys_for_channel",
-    "env_channels_enabled_override",
     "format_enabled_names",
     "load_enabled_from_store",
     "optional_secret_keys_for_channel",

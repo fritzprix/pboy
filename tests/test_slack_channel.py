@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 
 from pboy.channels.config import resolve_secret_key
-from pboy.channels.slack import SlackChannel
+from pboy.channels.slack import SLACK_APP_SECRET_KEY, SLACK_BOT_SECRET_KEY, SlackChannel
 from pboy.core.config import Settings
 from pboy.core.engine import Engine
 from pboy.models.hook import HookCreate
@@ -26,10 +26,7 @@ async def _noop_emit(*_a: Any, **_k: Any) -> None:
 @pytest_asyncio.fixture
 async def engine(tmp_path: Path) -> Engine:
     store = SQLiteStore(db_path=tmp_path / "slack.db", secret_key="slack-test-key")
-    eng = Engine(
-        store=store,
-        settings=Settings(slack_bot_token="xoxb-test", slack_app_token="xapp-test"),
-    )
+    eng = Engine(store=store, settings=Settings())
     await eng.start()
     yield eng
     await eng.stop()
@@ -103,7 +100,7 @@ async def test_start_requires_both_tokens(tmp_path: Path) -> None:
         channel = SlackChannel(
             _noop_emit,
             store,
-            Settings(slack_bot_token="", slack_app_token=""),
+            Settings(),
         )
         with pytest.raises(RuntimeError, match="tokens missing"):
             await channel.start()
@@ -138,6 +135,8 @@ async def test_handle_envelope_disconnect_signals_reconnect(engine: Engine) -> N
 async def test_handle_envelope_background_does_not_await_emit(tmp_path: Path) -> None:
     store = SQLiteStore(db_path=tmp_path / "bg.db", secret_key="slack-bg-key")
     await store.init_db()
+    await store.put_secret(SLACK_BOT_SECRET_KEY, "xoxb-t")
+    await store.put_secret(SLACK_APP_SECRET_KEY, "xapp-t")
     started = asyncio.Event()
     finished = asyncio.Event()
 
@@ -150,7 +149,7 @@ async def test_handle_envelope_background_does_not_await_emit(tmp_path: Path) ->
         channel = SlackChannel(
             slow_emit,
             store,
-            Settings(slack_bot_token="xoxb-t", slack_app_token="xapp-t"),
+            Settings(),
         )
         mock_ws = AsyncMock()
         channel._ws = mock_ws
@@ -179,11 +178,13 @@ async def test_handle_envelope_background_does_not_await_emit(tmp_path: Path) ->
 async def test_start_stop_restart_lifecycle(tmp_path: Path) -> None:
     store = SQLiteStore(db_path=tmp_path / "s_restart.db", secret_key="slack-restart-key")
     await store.init_db()
+    await store.put_secret(SLACK_BOT_SECRET_KEY, "xoxb-t")
+    await store.put_secret(SLACK_APP_SECRET_KEY, "xapp-t")
     try:
         channel = SlackChannel(
             _noop_emit,
             store,
-            Settings(slack_bot_token="xoxb-t", slack_app_token="xapp-t"),
+            Settings(),
         )
         await channel.start()
         assert channel.started is True
