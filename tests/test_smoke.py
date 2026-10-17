@@ -26,7 +26,8 @@ from tests.helpers import py_print
 
 def test_package_metadata() -> None:
     """Verify package metadata is present and valid."""
-    assert pboy.__version__ == "0.1.0"
+    assert pboy.__version__
+    assert pboy.__version__.count(".") >= 2
     assert pboy.__author__ == "fritzprix"
 
 
@@ -47,7 +48,7 @@ def test_cli_version(cli_runner: CliRunner) -> None:
     """Verify pboy --version prints current version."""
     res = cli_runner.invoke(app, ["--version"])
     assert res.exit_code == 0
-    assert "0.1.0" in res.output
+    assert pboy.__version__ in res.output
 
 
 def test_cloudevent_model() -> None:

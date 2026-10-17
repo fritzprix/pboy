@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+import pboy
 import pboy.core.config as config_mod
 from pboy.cli.main import app, main
 from pboy.models.cloudevent import CloudEvent
@@ -289,4 +290,4 @@ def test_cli_dunder_main() -> None:
         text=True,
     )
     assert result.returncode == 0
-    assert "0.1.0" in result.stdout
+    assert pboy.__version__ in result.stdout

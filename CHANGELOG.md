@@ -19,6 +19,11 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-17
+
+Local-only Alpha train: security contract, Telegram bot + App API rails, store-only
+secrets, operator docs, and CLI UX.
+
 ### Breaking
 
 - Remove `PB_AUTH_TOKEN`, UI login (`/ui/login`), and non-loopback bind.
@@ -27,38 +32,29 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 - Channel secrets / enablement are **store-only**: remove `PB_TELEGRAM_BOT_TOKEN`,
   `PB_TELEGRAM_ALLOWLIST`, `PB_SLACK_*`, and `PB_CHANNELS_ENABLED` overrides.
   Configure via `/ui/settings` or `pboy channel set-secret` / `enable` (#39).
+  Daemon startup logs a loud error if those env vars are still set.
+- CLI no longer uses `PB_DAEMON_URL`; it auto-connects to `http://127.0.0.1:8080`
+  when the daemon is up (`--daemon-url` for a custom port) (#38).
 
 ### Added
 
 - Telegram **App API** rail (Telethon): `api_id` / `api_hash` + account connect in
   `/ui/settings`; CLI `pboy telegram chats|messages|download|export` for user-account
   dialogs/history (separate from bot-token wake-up) (#39)
-
-
-- Operator guide (`docs/operator.md`): deploy/runbook, Telegram happy-path checklist,
-  troubleshooting (channel/hook/`PB_DAEMON_URL` split-brain/403); linked from README (#18)
-- Production security checklist, Telegram outbound/SSRF policy (fixed API base;
-  no user-controlled URLs), and Alpha known limits in
-  [`docs/security-contract.md`](docs/security-contract.md) (#17)
-- `LocalOnlyGuard` ASGI middleware applied to every HTTP/WebSocket route
-- Telegram inbound photo/document/audio/video attachments (`data.attachments` + optional
-  local download under `data_dir/files/telegram/`; `PB_TELEGRAM_DOWNLOAD_FILES`)
-- `event complete` reply files: `--file-path` / `--file-id` / `--file-type` → Telegram
-  `sendPhoto` / `sendDocument` / … (explicit only; does not echo inbound attachments).
-  Daemon `file_path` is restricted to `data_dir/files`; CLI stages copies under
-  `files/outbound/` when needed. Caption truncated to 1024; upload size capped.
-- Hook debug visibility (#27): spawn/parse failures include full `hook.exec` + parsed
-  `argv` in stderr; `GET /v1/events/{id}` and `event_detail` include `executions`
-  (stdout/stderr; newest 100, with `executions_truncated` when capped);
-  `pboy event get --verbose` prints those streams (omitted by default).
-- Telegram inbound allowlist (#35): optional `telegram.allowlist` secret /
-  `PB_TELEGRAM_ALLOWLIST` env (comma-separated `chat.id` or `from.id`) drops
-  unauthorized updates before attachment download or event emission.
+- Telegram inbound allowlist + 6-digit pairing UX in `/ui/settings` (#35)
+- Telegram inbound attachments + `event complete` reply files (`--file-path` /
+  `--file-id`; path confined under `data_dir/files`)
+- Hook debug visibility (#27): spawn failures include `hook.exec` + `argv`;
+  `event get --verbose` for execution streams
+- Operator guide (#18) and production security checklist / SSRF policy (#17)
+- OpenAPI field docs for inject/complete HTTP API (#28)
+- CI on `dev/**`; auto-close issues when PRs merge into `dev/**`
 
 ### Fixed
 
-- Host/bind allowlists use `ipaddress` loopback checks (reject `127.evil.com` DNS rebinding)
+- Host/bind allowlists use `ipaddress` loopback checks (reject `127.evil.com`)
 - WebSocket handshakes require a matching `Origin`
+- Windows-safe harness `exec` splitting
 
 ## [0.1.0] — 2026-10-14
 
@@ -81,5 +77,6 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/fritzprix/pboy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fritzprix/pboy/releases/tag/v0.1.0
