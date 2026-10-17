@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="{{ html_lang }}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -14,12 +14,24 @@
         <a href="/ui">Pageboy</a>
         <span class="tag">local</span>
       </div>
-      <nav class="nav" aria-label="주요 메뉴">
-        <a href="/ui" class="{% if page == 'overview' %}active{% endif %}">한눈에</a>
-        <a href="/ui/settings" class="{% if page == 'settings' %}active{% endif %}">채널·비밀값</a>
+      <nav class="nav" aria-label="{{ t('nav.aria') }}">
+        <a href="/ui" class="{% if page == 'overview' %}active{% endif %}">{{ t('nav.overview') }}</a>
+        <a href="/ui/settings" class="{% if page == 'settings' %}active{% endif %}">{{ t('nav.settings') }}</a>
       </nav>
+      <form class="lang-switch" method="get" action="/ui/lang">
+        <input type="hidden" name="next" value="{{ current_path }}" />
+        <label>
+          <span class="visually-hidden">{{ t('lang.label') }}</span>
+          <select name="lang" aria-label="{{ t('lang.label') }}" onchange="this.form.submit()">
+            {% for code, name in languages %}
+            <option value="{{ code }}" lang="{{ code }}"{% if code == lang %} selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <noscript><button type="submit" class="btn">{{ t('lang.apply') }}</button></noscript>
+      </form>
     </div>
-    <p class="sub">{% block subtitle %}로컬 대시보드 — 이 PC의 Pageboy 상태를 보고, 채널 열쇠를 넣을 수 있습니다.{% endblock %}</p>
+    <p class="sub">{% block subtitle %}{{ t('base.subtitle') }}{% endblock %}</p>
   </header>
   <main>
     {% block content %}{% endblock %}

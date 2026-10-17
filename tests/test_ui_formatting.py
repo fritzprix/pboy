@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from pboy.ui.formatting import duration, relative_ko, short_id, when
+from pboy.ui.formatting import duration, relative, short_id, when
 
 
 def test_short_id_keeps_prefix_and_tail() -> None:
@@ -15,16 +15,25 @@ def test_short_id_keeps_prefix_and_tail() -> None:
 
 def test_relative_ko_buckets() -> None:
     now = datetime(2026, 10, 17, 12, 0, 0, tzinfo=UTC)
-    assert relative_ko(datetime(2026, 10, 17, 11, 59, 30, tzinfo=UTC), now) == "방금"
-    assert relative_ko(datetime(2026, 10, 17, 11, 57, 0, tzinfo=UTC), now) == "3분 전"
-    assert relative_ko(datetime(2026, 10, 17, 9, 0, 0, tzinfo=UTC), now) == "3시간 전"
-    assert relative_ko(datetime(2026, 10, 15, 12, 0, 0, tzinfo=UTC), now) == "2일 전"
-    assert relative_ko(datetime(2026, 10, 17, 12, 5, 0, tzinfo=UTC), now) == "방금"
+    assert relative(datetime(2026, 10, 17, 11, 59, 30, tzinfo=UTC), now, "ko") == "방금"
+    assert relative(datetime(2026, 10, 17, 11, 57, 0, tzinfo=UTC), now, "ko") == "3분 전"
+    assert relative(datetime(2026, 10, 17, 9, 0, 0, tzinfo=UTC), now, "ko") == "3시간 전"
+    assert relative(datetime(2026, 10, 15, 12, 0, 0, tzinfo=UTC), now, "ko") == "2일 전"
+    assert relative(datetime(2026, 10, 17, 12, 5, 0, tzinfo=UTC), now, "ko") == "방금"
+
+
+def test_relative_other_languages() -> None:
+    now = datetime(2026, 10, 17, 12, 0, 0, tzinfo=UTC)
+    three_min = datetime(2026, 10, 17, 11, 57, 0, tzinfo=UTC)
+    assert relative(three_min, now) == "3 min ago"
+    assert relative(three_min, now, "ja") == "3 分前"
+    assert relative(three_min, now, "fr") == "il y a 3 min"
+    assert relative(three_min, now, "xx") == "3 min ago"
 
 
 def test_when_keeps_iso_and_escapes_garbage() -> None:
     now = datetime(2026, 10, 17, 3, 10, 0, tzinfo=UTC)
-    html = str(when("2026-10-17T03:04:52Z", now=now))
+    html = str(when("2026-10-17T03:04:52Z", now=now, lang="ko"))
     assert 'datetime="2026-10-17T03:04:52Z"' in html
     assert "5분 전" in html
     assert str(when(None)) == "—"

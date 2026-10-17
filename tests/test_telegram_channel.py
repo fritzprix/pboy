@@ -14,6 +14,7 @@ import pytest_asyncio
 from pboy.channels.telegram import TELEGRAM_SECRET_KEY, TelegramChannel
 from pboy.core.config import Settings
 from pboy.core.engine import Engine
+from pboy.i18n import LocalizedError
 from pboy.models.hook import HookCreate
 from pboy.store.sqlite import SQLiteStore
 from tests.helpers import py_print
@@ -349,8 +350,9 @@ async def test_telegram_pairing_code_flow(
         code = m.group(1)
 
         # 3. Wrong code rejected
-        with pytest.raises(ValueError, match="유효하지 않거나"):
+        with pytest.raises(LocalizedError, match="Invalid or expired") as bad_code:
             await channel.verify_pairing_code("000000")
+        assert bad_code.value.localized("ko") == "유효하지 않거나 만료된 인증 코드입니다."
 
         # 4. Verify valid code -> stores chat_id and from_id in telegram.allowlist
         ids = await channel.verify_pairing_code(code)
@@ -382,12 +384,13 @@ async def test_start_rejects_unauthorized_token(engine: Engine) -> None:
     channel = TelegramChannel(
         engine.process_event, engine.store, settings, client=client
     )
-    with pytest.raises(TelegramAuthError, match="거부"):
+    with pytest.raises(TelegramAuthError, match="rejected"):
         await channel.start()
     assert channel.started is False
     assert channel.receiving_ok is False
     assert channel.last_error is not None
     assert "401" in channel.last_error
+    assert channel.last_error_i18n == ("err.token_rejected", {"status": 401})
 
 
 @pytest.mark.asyncio

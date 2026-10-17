@@ -3,9 +3,9 @@
   <span class="label-row">
     {{ field.label }}
     {% if saved %}
-    <span class="badge">저장됨</span>
+    <span class="badge">{{ t('field.saved') }}</span>
     {% else %}
-    <span class="badge muted">아직 없음</span>
+    <span class="badge muted">{{ t('field.not_set') }}</span>
     {% endif %}
   </span>
   <input
@@ -20,12 +20,12 @@
   {% if clear_name %}
   <span class="field-clear">
     <input type="checkbox" name="{{ clear_name }}" value="1" />
-    저장된 값 지우기
+    {{ t('field.clear') }}
   </span>
   {% endif %}
   {% if field.tooltip %}
   <details class="field-more">
-    <summary>자세히</summary>
+    <summary>{{ t('field.more') }}</summary>
     <p>{{ field.tooltip }}</p>
   </details>
   {% endif %}
@@ -40,14 +40,14 @@
 >
   <input type="hidden" name="secret_name" value="{{ field.secret_name }}" />
   {{ field_input('value', field, flags[field.secret_name], required=not field.optional) }}
-  <button type="submit" class="btn primary">저장</button>
+  <button type="submit" class="btn primary">{{ t('btn.save') }}</button>
 </form>
 {% endmacro %}
 
 {# Several values that only make sense together, saved by one button.
    Empty inputs keep the stored value, so a saved field is never required;
    saved optional fields get a "clear" checkbox instead. #}
-{% macro secret_group(channel, fields, flags, button='함께 저장') %}
+{% macro secret_group(channel, fields, flags, button=none) %}
 <form
   method="post"
   action="/ui/settings/channels/{{ channel }}/secrets"
@@ -63,8 +63,8 @@
     clear_name=('clear__' ~ field.secret_name) if field.optional and saved else none,
   ) }}
   {% endfor %}
-  <p class="field-help">비워 둔 칸은 기존 값을 그대로 둡니다.</p>
-  <button type="submit" class="btn primary">{{ button }}</button>
+  <p class="field-help">{{ t('group.empty_keeps') }}</p>
+  <button type="submit" class="btn primary">{{ button or t('group.save_together') }}</button>
 </form>
 {% endmacro %}
 
@@ -72,14 +72,14 @@
 <div class="actions">
   <form method="post" action="/ui/settings/channels/telegram/pair-start">
     <button type="submit" class="btn">
-      {% if pairing_active %}인증 코드 다시 받기 (대기 중){% else %}대화방으로 인증 코드 받기{% endif %}
+      {% if pairing_active %}{{ t('pair.resend') }}{% else %}{{ t('pair.request') }}{% endif %}
     </button>
   </form>
 </div>
 {% if pairing_active %}
 <form method="post" action="/ui/settings/channels/telegram/pair-verify" class="stack secret-form">
   <label class="field">
-    <span class="label-row">도착한 6자리 코드 입력</span>
+    <span class="label-row">{{ t('pair.enter_label') }}</span>
     <input
       type="text"
       name="code"
@@ -88,11 +88,11 @@
       maxlength="6"
       autocomplete="one-time-code"
       required
-      placeholder="예: 482910"
+      placeholder="{{ t('pair.placeholder') }}"
     />
-    <span class="field-help">봇에게 <code>/start</code> 또는 아무 메시지를 보내면 대화방에 6자리 코드가 답장됩니다.</span>
+    <span class="field-help">{{ th('pair.help') }}</span>
   </label>
-  <button type="submit" class="btn primary">코드 확인 및 내 대화방 등록</button>
+  <button type="submit" class="btn primary">{{ t('pair.submit') }}</button>
 </form>
 {% endif %}
 {% endmacro %}

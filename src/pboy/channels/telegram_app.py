@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pboy.core.config import Settings, get_settings
+from pboy.i18n import LocalizedError
 from pboy.store.base import StoreBase
 
 TELEGRAM_API_ID_SECRET_KEY = "telegram.api_id"
@@ -76,7 +77,7 @@ async def resolve_telegram_app_credentials(
 
     if require_auth and not app_session:
         raise RuntimeError(
-            "Telegram account is not connected. Complete “계정 연결” in /ui/settings "
+            "Telegram account is not connected. Connect your account in /ui/settings "
             "(phone + code) so dialogs/messages/export can use your user account."
         )
 
@@ -475,7 +476,7 @@ class TelegramAppService:
             await client.disconnect()
             raise RuntimeError(
                 "Telegram account session is not authorized. "
-                "Complete “계정 연결” in /ui/settings (phone + code)."
+                "Connect your account in /ui/settings (phone + code)."
             )
         return client
 
@@ -483,7 +484,7 @@ class TelegramAppService:
         """Send an OTP login code to `phone` and keep the pending hash for `verify_login_code`."""
         cleaned_phone = phone.strip()
         if not cleaned_phone:
-            raise ValueError("전화번호를 입력해 주세요 (예: +821012345678).")
+            raise LocalizedError("err.phone_required")
         creds = await resolve_telegram_app_credentials(self._store, require_auth=False)
         client = await self._open_client(creds, session_override="", authenticate=False)
         try:
@@ -520,10 +521,10 @@ class TelegramAppService:
         """
         cleaned_code = code.strip()
         if not cleaned_code:
-            raise ValueError("인증 코드를 입력해 주세요.")
+            raise LocalizedError("err.code_required")
         pending = self._pending_login
         if pending is None:
-            raise ValueError("먼저 전화번호로 인증 코드를 요청해 주세요.")
+            raise LocalizedError("err.request_code_first")
         target_phone = phone.strip() if phone and phone.strip() else pending.phone
 
         creds = await resolve_telegram_app_credentials(self._store, require_auth=False)
@@ -541,7 +542,7 @@ class TelegramAppService:
                 # Handle 2FA SessionPasswordNeededError by class name (works with mocks too)
                 if exc.__class__.__name__ != "SessionPasswordNeededError":
                     _raise_mapped_telethon(exc)
-                    raise ValueError(f"Telegram 로그인 실패: {exc}") from exc
+                    raise LocalizedError("err.login_failed", detail=str(exc)) from exc
                 if not password or not password.strip():
                     pending.temp_session = str(client.session.save())
                     pending.password_needed = True
@@ -554,10 +555,10 @@ class TelegramAppService:
     async def verify_login_password(self, password: str) -> dict[str, Any]:
         """Finish a 2FA login after ``verify_login_code`` reported ``password_required``."""
         if not password.strip():
-            raise ValueError("2단계 인증(2FA) 비밀번호를 입력해 주세요.")
+            raise LocalizedError("err.2fa_required")
         pending = self._pending_login
         if pending is None or not pending.password_needed:
-            raise ValueError("먼저 인증 코드를 확인해 주세요.")
+            raise LocalizedError("err.verify_code_first")
         creds = await resolve_telegram_app_credentials(self._store, require_auth=False)
         client = await self._open_client(
             creds, session_override=pending.temp_session, authenticate=False
@@ -573,7 +574,7 @@ class TelegramAppService:
             await client.sign_in(password=password.strip())
         except Exception as exc:
             _raise_mapped_telethon(exc)
-            raise ValueError(f"Telegram 로그인 실패: {exc}") from exc
+            raise LocalizedError("err.login_failed", detail=str(exc)) from exc
 
     async def _finish_login(self, client: Any) -> dict[str, Any]:
         session_str = str(client.session.save())
@@ -771,10 +772,7 @@ class TelegramAppService:
             media_root = Path(media_dir).expanduser().resolve()
         else:
             media_root = (
-                Path(self._settings.data_dir)
-                / "files"
-                / "telegram_app"
-                / _safe_chat_segment(chat)
+                Path(self._settings.data_dir) / "files" / "telegram_app" / _safe_chat_segment(chat)
             )
 
         kwargs, client_since, client_until = _build_get_messages_kwargs(

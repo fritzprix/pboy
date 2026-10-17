@@ -19,6 +19,18 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Added
+
+- Dashboard and settings UI in English, Korean, Japanese, Simplified Chinese,
+  French, and Spanish, with a header language picker (`pboy_lang` cookie, falling
+  back to `Accept-Language`, then English). Flash messages, Telegram login/pairing
+  errors, and the pairing-code bot message are localized too.
+
+### Changed
+
+- The UI defaults to English when the browser prefers none of the supported
+  languages (it was Korean-only before).
+
 ## [0.3.0] — 2026-10-17
 
 Dashboard, settings UX, and Telegram file retention/queue hardening on the

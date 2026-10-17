@@ -20,6 +20,7 @@ from pboy.core.telegram_media import (
     reset_local_files,
     set_local_files,
 )
+from pboy.i18n import DEFAULT_LANG, LocalizedError, translate
 from pboy.store.base import StoreBase
 
 TELEGRAM_SECRET_KEY = "telegram.bot_token"
@@ -109,6 +110,9 @@ class TelegramChannel:
         self._emit_sem = asyncio.Semaphore(max_inflight_emits)
         self._started = False
         self._last_error: str | None = None
+        # (catalog key, params) when last_error has a translation for the UI.
+        self._last_error_i18n: tuple[str, dict[str, Any]] | None = None
+        self._pairing_lang = DEFAULT_LANG
         self._last_poll_ok_at: float | None = None
         self._pairing_until: float = 0.0
         # code -> (chat_id, from_id, expires_at)
@@ -122,6 +126,18 @@ class TelegramChannel:
     @property
     def last_error(self) -> str | None:
         return self._last_error
+
+    @property
+    def last_error_i18n(self) -> tuple[str, dict[str, Any]] | None:
+        """Catalog key + params for ``last_error``, while it is still that error."""
+        if self._last_error_i18n is None or not self._last_error:
+            return None
+        key, params = self._last_error_i18n
+        return (
+            self._last_error_i18n
+            if self._last_error == translate(DEFAULT_LANG, key, **params)
+            else None
+        )
 
     @property
     def last_poll_ok_at(self) -> float | None:
@@ -161,7 +177,7 @@ class TelegramChannel:
                 self._bot_url("sendMessage"),
                 json={
                     "chat_id": chat_id,
-                    "text": f"Pageboy 인증 코드: {code}\n(설정 화면에 이 6자리 숫자를 입력하세요)",
+                    "text": translate(self._pairing_lang, "tg.pairing_message", code=code),
                 },
             )
             return res.status_code < 400 and bool(res.json().get("ok"))
@@ -172,8 +188,17 @@ class TelegramChannel:
             )
             return False
 
-    async def start_pairing(self, *, ttl: float = PAIRING_TTL_SECONDS) -> dict[str, Any]:
-        """Open a pairing window; if a recent chat is known, send a code immediately."""
+    async def start_pairing(
+        self,
+        *,
+        ttl: float = PAIRING_TTL_SECONDS,
+        lang: str = DEFAULT_LANG,
+    ) -> dict[str, Any]:
+        """Open a pairing window; if a recent chat is known, send a code immediately.
+
+        ``lang`` picks the language of the code message sent to the chat.
+        """
+        self._pairing_lang = lang
         self._pairing_until = time.monotonic() + ttl
         self._prune_expired_codes()
         chat_id, from_id = self._last_seen_peer
@@ -193,14 +218,14 @@ class TelegramChannel:
         cleaned = code.strip()
         entry = self._pairing_codes.pop(cleaned, None)
         if entry is None:
-            raise ValueError("유효하지 않거나 만료된 인증 코드입니다.")
+            raise LocalizedError("err.pair_code_invalid")
         chat_id, from_id, _exp = entry
         new_ids: list[str] = []
         for candidate in (chat_id, from_id):
             if candidate and candidate not in new_ids:
                 new_ids.append(candidate)
         if not new_ids:
-            raise ValueError("대화방 ID를 확인할 수 없습니다.")
+            raise LocalizedError("err.pair_no_chat_id")
 
         existing_raw = await self._store.get_secret(TELEGRAM_ALLOWLIST_SECRET_KEY)
         merged = list(parse_allowlist(existing_raw))
@@ -297,16 +322,12 @@ class TelegramChannel:
             raise RuntimeError("Telegram token not resolved")
         return f"{self._api_base}/bot{self._token}/{method}"
 
-    def _auth_error_message(self, status_code: int) -> str:
-        return (
-            f"봇 토큰이 거부되었습니다 (HTTP {status_code}). "
-            "BotFather에서 토큰을 확인한 뒤 다시 저장하고 채널을 켜 주세요."
-        )
-
     def _raise_if_unauthorized(self, res: httpx.Response) -> None:
         if res.status_code in (401, 403):
-            msg = self._auth_error_message(res.status_code)
+            params: dict[str, Any] = {"status": res.status_code}
+            msg = translate(DEFAULT_LANG, "err.token_rejected", **params)
             self._last_error = msg
+            self._last_error_i18n = ("err.token_rejected", params)
             raise TelegramAuthError(msg)
 
     async def _verify_token(self) -> None:
