@@ -7,6 +7,7 @@ Embedded local dashboard mounted when `pboy daemon --ui` or `pboy ui` runs.
 | Path | Role |
 |------|------|
 | `mount.py` | Routes: overview, settings forms, HTMX partials |
+| `agent_brief.py` | English agent brief (copy-to-clipboard source of truth) |
 | `guides.py` | Layman copy, official links, field tooltips |
 | `templates/` | Jinja2 pages + partials |
 | `static/` | CSS + vendored HTMX |
@@ -15,9 +16,17 @@ Embedded local dashboard mounted when `pboy daemon --ui` or `pboy ui` runs.
 
 | Path | Role |
 |------|------|
-| `/ui` | Overview — hooks / events / executions (read-only refresh) |
+| `/ui` | Overview — agent brief + hooks / events / executions |
+| `/ui/agent-brief.txt` | Plain-text agent brief (same body as the copy button) |
 | `/ui/settings` | Channel tokens + enable/disable + optional Jira harness secrets |
 | `/ui/static/*` | Assets |
+
+## Agent brief
+
+The overview page includes a Korean layman blurb and a **Copy agent brief** control.
+The brief itself is English and lives in `agent_brief.py` so it stays versioned with
+CLI/API reality. Operators paste it into Cursor (or similar) so an agent can help with
+settings, a session skill under `.cursor/skills/`, and hook subscription.
 
 Secrets are accepted via POST forms and **never rendered back** in full (only “저장됨”).
 

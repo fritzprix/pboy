@@ -13,6 +13,7 @@ from pboy.core.engine import Engine
 from pboy.daemon.app import create_app
 from pboy.models.execution import ExecutionData
 from pboy.models.hook import HookCreate
+from pboy.ui.agent_brief import render_agent_brief
 
 
 @pytest.mark.asyncio
@@ -48,6 +49,14 @@ async def test_ui_empty_states(tmp_path: Path) -> None:
         assert "No hooks registered." in dash.text
         assert "No events yet." in dash.text
         assert "No executions yet." in dash.text
+        assert 'data-copy-agent-brief' in dash.text
+        assert "Pageboy agent brief" in dash.text
+
+        brief = await client.get("/ui/agent-brief.txt")
+        assert brief.status_code == 200
+        assert "text/plain" in brief.headers["content-type"]
+        assert brief.text == render_agent_brief("http://127.0.0.1")
+        assert "{base_url}" not in brief.text
 
         assert "No hooks registered." in (await client.get("/ui/partials/hooks")).text
         assert "No events yet." in (await client.get("/ui/partials/events")).text
