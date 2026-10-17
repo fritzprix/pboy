@@ -19,6 +19,11 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-10-17
+
+Localized dashboard and settings UI, Slack thread replies, and a single
+`pboy event reply` command for chat replies.
+
 ### Added
 
 - Dashboard and settings UI in English, Korean, Japanese, Simplified Chinese,
@@ -126,7 +131,8 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/fritzprix/pboy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/fritzprix/pboy/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fritzprix/pboy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fritzprix/pboy/releases/tag/v0.1.0
