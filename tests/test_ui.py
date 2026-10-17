@@ -2,22 +2,101 @@
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from typer.testing import CliRunner
 
+from pboy.channels.telegram import TelegramChannel
 from pboy.channels.telegram_app import TelegramAppService
 from pboy.cli.main import app
+from pboy.core.config import Settings
 from pboy.core.engine import Engine
 from pboy.daemon.app import create_app
 from pboy.models.execution import ExecutionData
 from pboy.models.hook import HookCreate
 from pboy.ui.agent_brief import render_agent_brief
+
+
+def _mock_telegram_http(
+    *,
+    token_ok: bool = True,
+    sent_messages: list[dict[str, Any]] | None = None,
+) -> httpx.AsyncClient:
+    """httpx client that never touches api.telegram.org."""
+    sent = sent_messages if sent_messages is not None else []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getMe"):
+            if not token_ok:
+                return httpx.Response(
+                    401, json={"ok": False, "description": "Unauthorized"}
+                )
+            return httpx.Response(
+                200, json={"ok": True, "result": {"id": 1, "is_bot": True, "username": "t"}}
+            )
+        if request.url.path.endswith("/deleteWebhook"):
+            return httpx.Response(200, json={"ok": True, "result": True})
+        if request.url.path.endswith("/getUpdates"):
+            return httpx.Response(200, json={"ok": True, "result": []})
+        if request.url.path.endswith("/sendMessage"):
+            sent.append(json.loads(request.content.decode("utf-8")))
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+        return httpx.Response(404, json={"ok": False})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def _register_mock_telegram(
+    application: Any,
+    *,
+    token_ok: bool = True,
+    sent_messages: list[dict[str, Any]] | None = None,
+    data_dir: Path | None = None,
+) -> TelegramChannel:
+    eng: Engine = application.state.engine
+    channel = TelegramChannel(
+        eng.process_event,
+        eng.store,
+        Settings(data_dir=data_dir) if data_dir is not None else Settings(),
+        client=_mock_telegram_http(token_ok=token_ok, sent_messages=sent_messages),
+        poll_timeout=1,
+    )
+    application.state.channel_registry.register(channel)
+    return channel
+
+
+async def _pairing_code_via_inbound(
+    adapter: TelegramChannel,
+    sent_messages: list[dict[str, Any]],
+    *,
+    chat_id: str = "777888",
+    from_id: str = "777888",
+) -> str:
+    """Drive the real pairing path: start_pairing → inbound /start → parse code."""
+    await adapter.start_pairing()
+    await adapter.handle_update(
+        {
+            "update_id": 9001,
+            "message": {
+                "message_id": 1,
+                "text": "/start",
+                "from": {"id": int(from_id), "username": "op"},
+                "chat": {"id": int(chat_id), "type": "private"},
+            },
+        }
+    )
+    assert sent_messages, "expected pairing sendMessage"
+    match = re.search(r"(\d{6})", sent_messages[-1]["text"])
+    assert match is not None
+    return match.group(1)
 
 
 @pytest.mark.asyncio
@@ -255,6 +334,10 @@ async def test_ui_settings_guides_and_tooltips(tmp_path: Path) -> None:
         assert 'name="secret_name" value="app_token"' in body
         assert 'name="secret_name" value="api_id"' in body
         assert 'name="secret_name" value="api_hash"' in body
+        assert 'id="telegram-bot"' in body
+        assert 'data-bot-step="token"' in body
+        assert 'action="/ui/settings/channels/telegram/enable"' not in body
+        assert 'action="/ui/settings/channels/telegram/pair-start"' not in body
         assert 'id="telegram-app-api"' in body
         assert 'data-app-step="credentials"' in body
         assert 'action="/ui/settings/channels/telegram/app-login-start"' not in body
@@ -418,12 +501,155 @@ async def test_api_key_change_cancels_pending_login(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ui_settings_telegram_bot_sequential_steps(tmp_path: Path) -> None:
+    """Bot card: token → enable → pair → protected (only the current step open)."""
+    application = create_app(
+        db_path=tmp_path / "ui-bot-flow.db",
+        secret_key="ui-bot-flow-key",
+        enable_ui=True,
+        settings=Settings(data_dir=tmp_path / "ui-bot-flow-data"),
+    )
+    sent: list[dict[str, Any]] = []
+    _register_mock_telegram(application, sent_messages=sent, data_dir=tmp_path / "ui-bot-flow-data")
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        eng: Engine = application.state.engine
+
+        async def page() -> str:
+            return (await client.get("/ui/settings")).text
+
+        body = await page()
+        assert 'data-bot-step="token"' in body
+        assert 'action="/ui/settings/channels/telegram/enable"' not in body
+        assert "pair-start" not in body
+        assert "이렇게 준비하세요" not in body.split('id="channel-telegram"')[1].split(
+            'id="channel-slack"'
+        )[0]
+
+        save = await client.post(
+            "/ui/settings/channels/telegram/secret",
+            data={"secret_name": "bot_token", "value": "123:TELEGRAM-TEST-TOKEN"},
+            follow_redirects=False,
+        )
+        assert save.status_code == 303
+        assert "telegram.bot_token" in save.headers["location"]
+        assert "#telegram-bot" in save.headers["location"]
+        assert await eng.store.get_secret("telegram.bot_token") == "123:TELEGRAM-TEST-TOKEN"
+
+        body = await page()
+        assert "123:TELEGRAM-TEST-TOKEN" not in body
+        assert 'data-bot-step="enable"' in body
+        assert "✓ 봇 토큰 저장됨" in body
+        assert 'action="/ui/settings/channels/telegram/enable"' in body
+        assert "pair-start" not in body
+        assert "아무 채팅이나" not in body
+
+        enable = await client.post(
+            "/ui/settings/channels/telegram/enable",
+            follow_redirects=False,
+        )
+        assert enable.status_code == 303
+        assert "#telegram-bot" in enable.headers["location"]
+        status = await application.state.channel_registry.list_status()
+        tg = next(r for r in status if r["name"] == "telegram")
+        assert tg["enabled"] is True
+        assert tg["running"] is True
+
+        body = await page()
+        assert 'data-bot-step="pair"' in body
+        assert "✓ 켜짐" in body
+        assert "아무 채팅이나" in body
+        assert 'role="alert"' in body
+        assert 'action="/ui/settings/channels/telegram/pair-start"' in body
+        assert 'action="/ui/settings/channels/telegram/pair-verify"' not in body
+        assert "1단계 · 대화방" not in body
+
+        pair_start = await client.post(
+            "/ui/settings/channels/telegram/pair-start",
+            follow_redirects=False,
+        )
+        assert pair_start.status_code == 303
+        assert "#telegram-bot" in pair_start.headers["location"]
+        adapter = application.state.channel_registry.get("telegram")
+        assert isinstance(adapter, TelegramChannel)
+        assert adapter.pairing_active is True
+
+        body = await page()
+        assert 'data-bot-step="pair"' in body
+        assert 'action="/ui/settings/channels/telegram/pair-verify"' in body
+
+        code = await _pairing_code_via_inbound(adapter, sent)
+        pair_verify = await client.post(
+            "/ui/settings/channels/telegram/pair-verify",
+            data={"code": code},
+            follow_redirects=False,
+        )
+        assert pair_verify.status_code == 303
+        assert "telegram.allowlist" in pair_verify.headers["location"]
+        assert "#telegram-bot" in pair_verify.headers["location"]
+        assert await eng.store.get_secret("telegram.allowlist") == "777888"
+
+        body = await page()
+        assert 'data-bot-step="protected"' in body
+        assert "✓ Allowlist 보호 중" in body
+        assert "pboy hook register" in body
+        assert "아무 채팅이나" not in body
+
+
+@pytest.mark.asyncio
+async def test_ui_settings_telegram_bot_bad_token_stays_on_enable(
+    tmp_path: Path,
+) -> None:
+    """getMe 401 keeps the wizard on enable with the auth error — not pair."""
+    application = create_app(
+        db_path=tmp_path / "ui-bot-bad.db",
+        secret_key="ui-bot-bad-key",
+        enable_ui=True,
+        settings=Settings(data_dir=tmp_path / "ui-bot-bad-data"),
+    )
+    _register_mock_telegram(
+        application, token_ok=False, data_dir=tmp_path / "ui-bot-bad-data"
+    )
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        await client.post(
+            "/ui/settings/channels/telegram/secret",
+            data={"secret_name": "bot_token", "value": "123:BAD-TOKEN"},
+            follow_redirects=False,
+        )
+        enable = await client.post(
+            "/ui/settings/channels/telegram/enable",
+            follow_redirects=False,
+        )
+        assert enable.status_code == 303
+        assert "err=" in enable.headers["location"]
+
+        body = (await client.get("/ui/settings")).text
+        assert 'data-bot-step="enable"' in body
+        assert "거부" in body
+        assert "pair-start" not in body
+        status = await application.state.channel_registry.list_status()
+        tg = next(r for r in status if r["name"] == "telegram")
+        assert tg["enabled"] is True
+        assert tg["running"] is False
+
+
+@pytest.mark.asyncio
 async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> None:
     application = create_app(
         db_path=tmp_path / "ui-save.db",
         secret_key="ui-save-key",
         enable_ui=True,
+        settings=Settings(data_dir=tmp_path / "ui-save-data"),
     )
+    sent: list[dict[str, Any]] = []
+    _register_mock_telegram(application, sent_messages=sent, data_dir=tmp_path / "ui-save-data")
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
@@ -455,18 +681,9 @@ async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> No
         tg = next(r for r in status if r["name"] == "telegram")
         assert tg["enabled"] is True
 
-        # Trigger UI pairing start -> sets pairing_active on the running adapter
-        pair_start = await client.post(
-            "/ui/settings/channels/telegram/pair-start",
-            follow_redirects=False,
-        )
-        assert pair_start.status_code == 303
         adapter = application.state.channel_registry.get("telegram")
-        assert adapter is not None
-        assert adapter.pairing_active is True
-
-        # Mint a code on the adapter as if a message arrived, then verify via UI form
-        code = adapter._mint_code_for_peer("777888", "777888")
+        assert isinstance(adapter, TelegramChannel)
+        code = await _pairing_code_via_inbound(adapter, sent)
         pair_verify = await client.post(
             "/ui/settings/channels/telegram/pair-verify",
             data={"code": code},

@@ -17,7 +17,7 @@ from pboy.channels.config import (
 )
 from pboy.channels.fake import FakeChannel
 from pboy.channels.slack import build_slack_channel
-from pboy.channels.telegram import build_telegram_channel
+from pboy.channels.telegram import TELEGRAM_SECRET_KEY, build_telegram_channel
 from pboy.channels.telegram_app import (
     TELEGRAM_API_HASH_SECRET_KEY,
     TELEGRAM_API_ID_SECRET_KEY,
@@ -118,13 +118,37 @@ class ChannelRegistry:
     async def _start_one(self, name: str) -> None:
         key = name.strip().lower()
         if key in self._running:
-            return
+            adapter = self._instances.get(key)
+            # Auth-fatal poll exit leaves a stale running entry with started=False.
+            if adapter is not None and getattr(adapter, "started", True):
+                return
+            self._running = [n for n in self._running if n != key]
         adapter = self._resolve(key)
         if adapter is None:
             return
         await adapter.start()
         self._running.append(key)
         logger.info("channel.started name={}", key)
+
+    async def _restart_one(self, name: str) -> None:
+        """Stop and recreate an adapter so a new secret (e.g. bot token) is picked up."""
+        key = name.strip().lower()
+        if key in self._running:
+            adapter = self._instances.pop(key, None)
+            if adapter is not None:
+                try:
+                    await adapter.stop()
+                except Exception:
+                    logger.exception("channel.restart_stop_failed name={}", key)
+            self._running = [n for n in self._running if n != key]
+        elif key in self._instances:
+            # Not running but instance exists — drop so the next start uses fresh state.
+            old = self._instances.pop(key)
+            try:
+                await old.stop()
+            except Exception:
+                logger.exception("channel.restart_stop_failed name={}", key)
+        await self._start_one(key)
 
     async def stop_all(self) -> None:
         """Stop every adapter that was started by this registry."""
@@ -189,6 +213,22 @@ class ChannelRegistry:
             await self._store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "")
             for callback in self._app_credential_listeners:
                 callback()
+        # Bot token change: restart so polling uses the new token. Allowlist stays.
+        # Restart failures (bad token) leave last_error on the adapter; the save itself
+        # still succeeds so the UI can advance to the enable / error step.
+        if (
+            secret_key == TELEGRAM_SECRET_KEY
+            and cleaned
+            and cleaned != previous_clean
+            and "telegram" in await self.resolve_enabled_names()
+        ):
+            try:
+                await self._restart_one("telegram")
+            except Exception as exc:
+                logger.warning(
+                    "channel.telegram restart_after_token_change failed: {}",
+                    exc,
+                )
         return secret_key
 
     async def list_status(self) -> list[dict[str, Any]]:
@@ -206,11 +246,15 @@ class ChannelRegistry:
                         break
             else:
                 has_secret = False
+            adapter = self._instances.get(name)
+            actually_running = name in running and (
+                adapter is None or bool(getattr(adapter, "started", True))
+            )
             rows.append(
                 {
                     "name": name,
                     "enabled": name in enabled,
-                    "running": name in running,
+                    "running": actually_running,
                     "secret_key": keys[0] if len(keys) == 1 else None,
                     "secret_keys": list(keys),
                     "has_secret": has_secret if keys else False,

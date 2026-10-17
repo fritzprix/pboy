@@ -85,6 +85,8 @@ async def test_token_from_store_secret(engine: Engine) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(str(request.url))
+        if request.url.path.endswith("/getMe"):
+            return httpx.Response(200, json={"ok": True, "result": {"id": 1, "is_bot": True}})
         if request.url.path.endswith("/deleteWebhook"):
             return httpx.Response(200, json={"ok": True, "result": True})
         if request.url.path.endswith("/getUpdates"):
@@ -105,9 +107,12 @@ async def test_token_from_store_secret(engine: Engine) -> None:
     try:
         assert channel.started is True
         await asyncio.sleep(0.05)
+        assert any("getMe" in u for u in seen)
         assert any("deleteWebhook" in u for u in seen)
         assert any("getUpdates" in u for u in seen)
         assert any("stored-bot-token" in u for u in seen)
+        assert channel.receiving_ok is True
+        assert channel.last_error is None
     finally:
         await channel.stop()
 
@@ -130,6 +135,8 @@ async def test_poll_loop_emits_recorded_update(
     state = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getMe"):
+            return httpx.Response(200, json={"ok": True, "result": {"id": 1, "is_bot": True}})
         if request.url.path.endswith("/deleteWebhook"):
             return httpx.Response(200, json={"ok": True, "result": True})
         if request.url.path.endswith("/getUpdates"):
@@ -182,6 +189,8 @@ async def test_poll_backoff_on_error_then_recovers(
     state = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getMe"):
+            return httpx.Response(200, json={"ok": True, "result": {"id": 1, "is_bot": True}})
         if request.url.path.endswith("/deleteWebhook"):
             return httpx.Response(200, json={"ok": True, "result": True})
         if request.url.path.endswith("/getUpdates"):
@@ -354,3 +363,129 @@ async def test_telegram_pairing_code_flow(
         info2 = await channel.start_pairing()
         assert info2["sent_immediately"] is True
         assert len(sent_messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_start_rejects_unauthorized_token(engine: Engine) -> None:
+    from pboy.channels.telegram import TelegramAuthError
+
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "bad-token")
+    settings = Settings()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getMe"):
+            return httpx.Response(401, json={"ok": False, "description": "Unauthorized"})
+        return httpx.Response(404)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    channel = TelegramChannel(
+        engine.process_event, engine.store, settings, client=client
+    )
+    with pytest.raises(TelegramAuthError, match="거부"):
+        await channel.start()
+    assert channel.started is False
+    assert channel.receiving_ok is False
+    assert channel.last_error is not None
+    assert "401" in channel.last_error
+
+
+@pytest.mark.asyncio
+async def test_poll_stops_on_unauthorized(engine: Engine) -> None:
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "later-bad")
+    settings = Settings()
+    state = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getMe"):
+            return httpx.Response(200, json={"ok": True, "result": {"id": 1, "is_bot": True}})
+        if request.url.path.endswith("/deleteWebhook"):
+            return httpx.Response(200, json={"ok": True, "result": True})
+        if request.url.path.endswith("/getUpdates"):
+            state["n"] += 1
+            return httpx.Response(401, json={"ok": False, "description": "Unauthorized"})
+        return httpx.Response(404)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    channel = TelegramChannel(
+        engine.process_event,
+        engine.store,
+        settings,
+        client=client,
+        poll_timeout=1,
+        initial_backoff=0.01,
+        max_backoff=0.05,
+    )
+    await channel.start()
+    try:
+        for _ in range(50):
+            if channel.last_error is not None:
+                break
+            await asyncio.sleep(0.02)
+        assert channel.started is False
+        assert channel.receiving_ok is False
+        assert channel.last_error is not None
+        assert "401" in channel.last_error
+        polls_after_error = state["n"]
+        await asyncio.sleep(0.05)
+        assert state["n"] == polls_after_error  # no retry after auth failure
+    finally:
+        await channel.stop()
+
+
+@pytest.mark.asyncio
+async def test_registry_restarts_telegram_on_bot_token_change(
+    engine: Engine, tmp_path: Path
+) -> None:
+    from pboy.channels.config import save_enabled_to_store
+    from pboy.channels.registry import ChannelRegistry
+
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "token-v1")
+    await save_enabled_to_store(engine.store, ["telegram"])
+    settings = Settings(data_dir=tmp_path)
+    seen_tokens: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # URL path is /bot{token}/method
+        parts = request.url.path.split("/")
+        if len(parts) >= 3 and parts[1].startswith("bot"):
+            seen_tokens.append(parts[1][3:])
+        if request.url.path.endswith("/getMe"):
+            return httpx.Response(200, json={"ok": True, "result": {"id": 1, "is_bot": True}})
+        if request.url.path.endswith("/deleteWebhook"):
+            return httpx.Response(200, json={"ok": True, "result": True})
+        if request.url.path.endswith("/getUpdates"):
+            return httpx.Response(200, json={"ok": True, "result": []})
+        return httpx.Response(404)
+
+    def factory(emit: Any, store: Any, cfg: Settings) -> TelegramChannel:
+        return TelegramChannel(
+            emit,
+            store,
+            cfg,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            poll_timeout=1,
+        )
+
+    reg = ChannelRegistry(
+        emit=engine.process_event,
+        store=engine.store,
+        settings=settings,
+        factories={"telegram": factory},
+    )
+    await reg.start_enabled()
+    first = reg.get("telegram")
+    assert first is not None
+    assert first.started is True
+    await asyncio.sleep(0.05)
+
+    await reg.set_channel_secret("telegram", "token-v2", secret_name="bot_token")
+    second = reg.get("telegram")
+    assert second is not None
+    assert second is not first
+    assert second.started is True
+    assert "token-v1" in seen_tokens
+    assert "token-v2" in seen_tokens
+    # Allowlist must not be cleared by a token change.
+    assert await engine.store.get_secret("telegram.allowlist") is None
+
+    await reg.stop_all()

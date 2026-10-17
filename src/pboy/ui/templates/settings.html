@@ -24,6 +24,7 @@
   <p class="prose"><strong>한 줄 요약:</strong> {{ g.blurb }}</p>
   <p class="prose muted">{{ g.what_it_does }}</p>
 
+  {% if g.name != 'telegram' %}
   <h3 class="subhead">이렇게 준비하세요</h3>
   <ol class="steps">
     {% for step in g.steps %}
@@ -38,61 +39,104 @@
     </li>
     {% endfor %}
   </ul>
-
-  {% for field in g.fields %}
-  {{ m.secret_field(g.name, field, row.secret_flags) }}
-  {% endfor %}
-
-  <div class="actions">
-    {% if row.enabled %}
-    <form method="post" action="/ui/settings/channels/{{ g.name }}/disable">
-      <button type="submit" class="btn">이 채널 끄기</button>
-    </form>
-    {% else %}
-    <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
-      <button type="submit" class="btn primary" title="토큰을 저장한 뒤 켜세요. 데몬이 바로 수신을 시도합니다.">
-        이 채널 켜기
-      </button>
-    </form>
-    {% endif %}
-  </div>
+  {% endif %}
 
   {% if g.name == 'telegram' %}
-  <hr class="sep" />
-  <h3 class="subhead">봇 대화방 Allowlist (wake-up용)</h3>
-  <p class="prose muted">
-    봇에게 메시지를 보낼 수 있는 채팅만 허용합니다. 버튼을 누르면 대화방으로 6자리 코드가 가고,
-    아래에 입력하면 Allowlist에 등록됩니다. <strong>봇과의 대화</strong>용이며, 아래 “계정 연결”과는 별개입니다.
-  </p>
-  <div class="actions">
-    <form method="post" action="/ui/settings/channels/telegram/pair-start">
-      <button type="submit" class="btn" {% if not row.running %}disabled title="먼저 봇 토큰을 저장하고 채널을 켜 주세요"{% endif %}>
-        {% if row.pairing_active %}인증 코드 다시 받기 (대기 중){% else %}1단계 · 대화방으로 인증 코드 받기{% endif %}
-      </button>
-    </form>
+  {% set bot_step = row.bot_step %}
+  {% set bot_order = ['token', 'enable', 'pair', 'protected'] %}
+  {% set bot_pos = bot_order.index(bot_step) %}
+  {% set token_field = g.fields | selectattr('secret_name', 'equalto', 'bot_token') | first %}
+  {% set allowlist_field = g.fields | selectattr('secret_name', 'equalto', 'allowlist') | first %}
+  <div class="bot-flow" id="telegram-bot" data-bot-step="{{ bot_step }}">
+    <ol class="flow-steps" aria-label="봇 설정 진행 단계">
+      {% for label in ['1. 봇 토큰', '2. 채널 켜기', '3. 대화방 페어링', '보호됨'] %}
+      <li class="{% if loop.index0 == bot_pos %}current{% elif loop.index0 < bot_pos %}done{% endif %}"
+          {% if loop.index0 == bot_pos %}aria-current="step"{% endif %}>{{ label }}</li>
+      {% endfor %}
+    </ol>
+
+    {# 1 · bot token #}
+    {% if bot_step == 'token' %}
+    <h4 class="flow-step-title">1단계 · 봇 토큰 저장</h4>
+    <p class="prose muted">
+      {% for link in g.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+      에서 받은 토큰을 저장하세요.
+    </p>
+    {{ m.secret_field(g.name, token_field, row.secret_flags) }}
+    {% else %}
+    <details class="flow-done">
+      <summary>✓ 봇 토큰 저장됨 <span class="muted">· 변경</span></summary>
+      <p class="prose muted">토큰을 바꾸면 채널을 새 토큰으로 다시 시작합니다. Allowlist는 유지됩니다.</p>
+      {{ m.secret_field(g.name, token_field, row.secret_flags) }}
+    </details>
+    {% endif %}
+
+    {# 2 · enable (also receiving error / not started) #}
+    {% if bot_step == 'enable' %}
+    <h4 class="flow-step-title">2단계 · 채널 켜기</h4>
+    {% if row.enabled and not row.receiving_ok %}
+    <p class="flash bad" role="alert">
+      {% if row.bot_last_error %}
+      {{ row.bot_last_error }}
+      {% else %}
+      채널은 켜졌지만 수신이 시작되지 않았습니다. 봇 토큰이 올바른지, 네트워크를 확인한 뒤
+      끄고 다시 켜 보세요.
+      {% endif %}
+    </p>
+    <div class="actions">
+      <form method="post" action="/ui/settings/channels/{{ g.name }}/disable">
+        <button type="submit" class="btn">이 채널 끄기</button>
+      </form>
+      <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
+        <button type="submit" class="btn primary">다시 켜기</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="prose muted">토큰을 저장한 뒤 켜면 데몬이 바로 수신을 시도합니다.</p>
+    <div class="actions">
+      <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
+        <button type="submit" class="btn primary">이 채널 켜기</button>
+      </form>
+    </div>
+    {% endif %}
+    {% elif bot_step in ['pair', 'protected'] %}
+    <div class="flow-done-row">
+      ✓ 켜짐 · 수신 중
+      <form method="post" action="/ui/settings/channels/{{ g.name }}/disable">
+        <button type="submit" class="btn link">끄기</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {# 3 · pairing / allowlist #}
+    {% if bot_step == 'pair' %}
+    <h4 class="flow-step-title">3단계 · 대화방 페어링</h4>
+    <p class="flash bad" role="alert">
+      Allowlist가 비어 있으면 <strong>아무 채팅이나</strong> 훅을 깨울 수 있습니다.
+      아래 인증으로 내 대화방만 등록하세요.
+    </p>
+    <p class="prose muted">
+      봇에게 메시지를 보낼 수 있는 채팅만 허용합니다. 코드 받기 → 코드 입력 순으로
+      Allowlist에 등록됩니다. <strong>봇과의 대화</strong>용이며, 아래 “계정 연결”과는 별개입니다.
+    </p>
+    {{ m.pairing_form(row.pairing_active) }}
+    <details class="flow-done">
+      <summary>직접 편집 <span class="muted">· Allowlist ID</span></summary>
+      {{ m.secret_field(g.name, allowlist_field, row.secret_flags) }}
+    </details>
+    {% elif bot_step == 'protected' %}
+    <div class="flow-done-row">✓ Allowlist 보호 중</div>
+    <p class="prose muted">
+      등록된 채팅만 훅을 깨웁니다. 훅을 쓰려면
+      <code>pboy hook register</code> 로 <code>telegram:message</code> 등을 구독하세요.
+    </p>
+    <details class="flow-done">
+      <summary>다시 페어링 / 직접 편집</summary>
+      {{ m.pairing_form(row.pairing_active) }}
+      {{ m.secret_field(g.name, allowlist_field, row.secret_flags) }}
+    </details>
+    {% endif %}
   </div>
-  <form method="post" action="/ui/settings/channels/telegram/pair-verify" class="stack secret-form">
-    <label class="field">
-      <span class="label-row">
-        2단계 · 텔레그램 대화방에 도착한 6자리 코드 입력
-        {% if row.secret_flags['allowlist'] %}
-        <span class="badge">Allowlist 보호 중</span>
-        {% endif %}
-      </span>
-      <input
-        type="text"
-        name="code"
-        inputmode="numeric"
-        pattern="[0-9]{6}"
-        maxlength="6"
-        autocomplete="one-time-code"
-        required
-        placeholder="예: 482910"
-      />
-      <span class="field-help">봇에게 <code>/start</code> 또는 아무 메시지를 보내면 대화방에 6자리 코드가 답장됩니다.</span>
-    </label>
-    <button type="submit" class="btn primary">코드 확인 및 내 대화방 등록</button>
-  </form>
 
   <hr class="sep" />
   {% set ag = row.app_guide %}
@@ -182,6 +226,25 @@
     </p>
     <form method="post" action="/ui/settings/channels/telegram/app-disconnect" class="actions">
       <button type="submit" class="btn">계정 연결 해제</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% else %}
+  {% for field in g.fields %}
+  {{ m.secret_field(g.name, field, row.secret_flags) }}
+  {% endfor %}
+
+  <div class="actions">
+    {% if row.enabled %}
+    <form method="post" action="/ui/settings/channels/{{ g.name }}/disable">
+      <button type="submit" class="btn">이 채널 끄기</button>
+    </form>
+    {% else %}
+    <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
+      <button type="submit" class="btn primary" title="토큰을 저장한 뒤 켜세요. 데몬이 바로 수신을 시도합니다.">
+        이 채널 켜기
+      </button>
     </form>
     {% endif %}
   </div>

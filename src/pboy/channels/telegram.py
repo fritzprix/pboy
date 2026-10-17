@@ -30,6 +30,10 @@ _MAX_INFLIGHT_EMITS = 4
 PAIRING_TTL_SECONDS = 300.0
 
 
+class TelegramAuthError(RuntimeError):
+    """Bot token rejected (HTTP 401/403) — do not keep polling."""
+
+
 def parse_allowlist(raw: str | None) -> frozenset[str]:
     """Parse comma/whitespace-separated Telegram chat/user IDs into a set of strings."""
     if not raw:
@@ -91,6 +95,8 @@ class TelegramChannel:
         self._emit_tasks: set[asyncio.Task[None]] = set()
         self._emit_sem = asyncio.Semaphore(_MAX_INFLIGHT_EMITS)
         self._started = False
+        self._last_error: str | None = None
+        self._last_poll_ok_at: float | None = None
         self._pairing_until: float = 0.0
         # code -> (chat_id, from_id, expires_at)
         self._pairing_codes: dict[str, tuple[str | None, str | None, float]] = {}
@@ -99,6 +105,19 @@ class TelegramChannel:
     @property
     def started(self) -> bool:
         return self._started
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @property
+    def last_poll_ok_at(self) -> float | None:
+        return self._last_poll_ok_at
+
+    @property
+    def receiving_ok(self) -> bool:
+        """True when the poll loop is running and the token has not been rejected."""
+        return self._started and self._last_error is None
 
     @property
     def pairing_active(self) -> bool:
@@ -231,7 +250,9 @@ class TelegramChannel:
         if self._started:
             return
         self._token = await self._resolve_token()
+        await self._verify_token()
         await self._delete_webhook()
+        self._last_error = None
         self._started = True
         self._task = asyncio.create_task(self._poll_loop(), name="pboy-telegram-poll")
         logger.info("channel.connect name=telegram transport=long-poll")
@@ -263,6 +284,40 @@ class TelegramChannel:
             raise RuntimeError("Telegram token not resolved")
         return f"{self._api_base}/bot{self._token}/{method}"
 
+    def _auth_error_message(self, status_code: int) -> str:
+        return (
+            f"봇 토큰이 거부되었습니다 (HTTP {status_code}). "
+            "BotFather에서 토큰을 확인한 뒤 다시 저장하고 채널을 켜 주세요."
+        )
+
+    def _raise_if_unauthorized(self, res: httpx.Response) -> None:
+        if res.status_code in (401, 403):
+            msg = self._auth_error_message(res.status_code)
+            self._last_error = msg
+            raise TelegramAuthError(msg)
+
+    async def _verify_token(self) -> None:
+        """Call ``getMe`` so a bad token fails before we claim to be receiving."""
+        try:
+            res = await self._client.get(self._bot_url("getMe"))
+        except httpx.HTTPError as exc:
+            msg = redact_secret(f"Telegram getMe failed: {exc}", self._token)
+            self._last_error = msg
+            raise RuntimeError(msg) from exc
+        self._raise_if_unauthorized(res)
+        if res.status_code >= 400:
+            msg = redact_secret(
+                f"Telegram getMe status={res.status_code} body={res.text[:200]}",
+                self._token,
+            )
+            self._last_error = msg
+            raise RuntimeError(msg)
+        body = res.json()
+        if not isinstance(body, dict) or not body.get("ok"):
+            msg = f"Telegram getMe not ok: {body!r}"
+            self._last_error = msg
+            raise RuntimeError(msg)
+
     async def _delete_webhook(self) -> None:
         """Clear webhook so getUpdates long-poll is exclusive."""
         try:
@@ -287,6 +342,10 @@ class TelegramChannel:
                 self._bot_url("getUpdates"),
                 params={"offset": self._offset, "timeout": self._poll_timeout},
             )
+        except httpx.HTTPError as exc:
+            raise RuntimeError(redact_secret(str(exc), self._token)) from exc
+        self._raise_if_unauthorized(res)
+        try:
             res.raise_for_status()
         except httpx.HTTPError as exc:
             raise RuntimeError(redact_secret(str(exc), self._token)) from exc
@@ -434,6 +493,8 @@ class TelegramChannel:
             try:
                 updates = await self._fetch_updates()
                 backoff = self._initial_backoff
+                self._last_poll_ok_at = time.monotonic()
+                self._last_error = None
                 for update in updates:
                     try:
                         await self.handle_update(update, background=True)
@@ -447,6 +508,14 @@ class TelegramChannel:
                     await asyncio.sleep(0.05)
             except asyncio.CancelledError:
                 raise
+            except TelegramAuthError as exc:
+                self._last_error = str(exc)
+                self._started = False
+                logger.error(
+                    "channel.telegram auth_failed err={} — stopping poll",
+                    redact_secret(str(exc), self._token),
+                )
+                return
             except Exception as exc:
                 logger.warning(
                     "channel.telegram poll_error err={} backoff={:.1f}s",
@@ -473,6 +542,7 @@ __all__ = [
     "DEFAULT_API_BASE",
     "TELEGRAM_ALLOWLIST_SECRET_KEY",
     "TELEGRAM_SECRET_KEY",
+    "TelegramAuthError",
     "TelegramChannel",
     "build_telegram_channel",
     "parse_allowlist",
