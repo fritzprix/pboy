@@ -6,6 +6,31 @@
   <a href="/ui/settings">채널·비밀값</a>
   에서 설정합니다. 아래는 현재 훅·이벤트·실행 기록입니다.
 </p>
+
+<section class="panel agent-brief" id="agent-brief-panel" data-agent-brief>
+  <div class="panel-head">
+    <h2>에이전트 안내문</h2>
+    <span class="hint">Cursor 등에 붙여넣기</span>
+  </div>
+  <p class="prose muted">
+    설정 도움 · 세션용 스킬 작성 · 이벤트 구독(훅 등록)까지 에이전트에게 맡기려면
+    아래 안내문을 복사해 채팅에 붙여넣으세요.
+  </p>
+  <div class="actions agent-brief-actions">
+    <button
+      type="button"
+      class="btn primary"
+      id="copy-agent-brief"
+      data-copy-agent-brief
+    >
+      에이전트 안내문 복사
+    </button>
+    <a class="btn" href="/ui/agent-brief.txt">텍스트로 열기</a>
+    <span class="hint" id="copy-agent-brief-status" aria-live="polite" hidden></span>
+  </div>
+  <textarea id="agent-brief-source" readonly hidden>{{ agent_brief }}</textarea>
+</section>
+
 <section class="panel">
   <div class="panel-head">
     <h2>Hooks</h2>
@@ -48,4 +73,55 @@
     {% include "partials/executions.html" %}
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (function () {
+      var btn = document.getElementById("copy-agent-brief");
+      var source = document.getElementById("agent-brief-source");
+      var status = document.getElementById("copy-agent-brief-status");
+      if (!btn || !source) return;
+
+      function showStatus(msg) {
+        if (!status) return;
+        status.hidden = false;
+        status.textContent = msg;
+      }
+
+      function fallbackCopy(text) {
+        var tmp = document.createElement("textarea");
+        tmp.value = text;
+        tmp.setAttribute("readonly", "");
+        tmp.style.position = "fixed";
+        tmp.style.left = "-9999px";
+        document.body.appendChild(tmp);
+        tmp.select();
+        var ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch (_err) {
+          ok = false;
+        }
+        document.body.removeChild(tmp);
+        return ok;
+      }
+
+      btn.addEventListener("click", function () {
+        var text = source.value;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            function () {
+              showStatus("복사됨");
+            },
+            function () {
+              showStatus(fallbackCopy(text) ? "복사됨" : "복사 실패 — 텍스트로 열기를 쓰세요");
+            }
+          );
+          return;
+        }
+        showStatus(fallbackCopy(text) ? "복사됨" : "복사 실패 — 텍스트로 열기를 쓰세요");
+      });
+    })();
+  </script>
 {% endblock %}

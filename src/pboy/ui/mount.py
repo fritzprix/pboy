@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -17,6 +17,7 @@ from pboy.channels.telegram_app import (
     TelegramAppService,
 )
 from pboy.core.engine import Engine
+from pboy.ui.agent_brief import render_agent_brief
 from pboy.ui.guides import (
     CHANNEL_GUIDES,
     HARNESS_SECRET_FIELDS,
@@ -105,9 +106,21 @@ def mount_ui(app: FastAPI) -> None:
                 "events": events,
                 "executions": executions,
                 "page": "overview",
+                "agent_brief": render_agent_brief(str(request.base_url)),
             }
         )
         return _TEMPLATES.TemplateResponse(request, "dashboard.html", ctx)
+
+    @app.get(
+        "/ui/agent-brief.txt",
+        response_class=PlainTextResponse,
+        include_in_schema=False,
+    )
+    async def ui_agent_brief_text(request: Request) -> PlainTextResponse:
+        return PlainTextResponse(
+            render_agent_brief(str(request.base_url)),
+            media_type="text/plain; charset=utf-8",
+        )
 
     @app.get(
         "/ui/settings",

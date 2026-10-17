@@ -209,6 +209,15 @@ th {
   color: var(--accent);
 }
 
+.agent-brief-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.agent-brief-actions .hint {
+  margin-left: 0.15rem;
+}
+
 .panel.narrow {
   max-width: 32rem;
 }
