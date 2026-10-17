@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Pageboy · {{ event.id | short_id if event else "이벤트 없음" }}{% endblock %}
+{% block content %}
+<p class="lede"><a href="/ui">← 한눈에</a></p>
+
+{% if not event %}
+<section class="panel">
+  <div class="panel-head"><h2>이벤트를 찾을 수 없습니다</h2></div>
+  <p class="prose muted"><code>{{ event_id }}</code> — 지워졌거나 ID가 잘못되었습니다.</p>
+</section>
+{% else %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Event</h2>
+    {% if event.completion %}{{ m.status(event.completion.status) }}{% endif %}
+  </div>
+  <dl class="kv">
+    <dt>ID</dt><dd class="mono">{{ event.id }}</dd>
+    <dt>Source</dt><dd>{{ event.source }}</dd>
+    <dt>Type</dt><dd class="mono">{{ event.type }}</dd>
+    <dt>Time</dt><dd class="time">{{ event.time | when }}</dd>
+    {% if event.completion %}
+    <dt>Completed</dt>
+    <dd>
+      {{ event.completion.summary }}
+      <span class="muted">· {{ event.completion.completed_at | when }}</span>
+      {% for r in event.completion.sync_results %}
+      <div class="sync-row">
+        {{ m.status('completed' if r.ok else 'failed') }}
+        <span class="mono">{{ r.target }}</span>
+        {% if r.detail %}<span class="muted">{{ r.detail }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </dd>
+    {% elif event.execution_state %}
+    <dt>Progress</dt>
+    <dd>
+      {% if event.execution_state.status %}{{ m.status(event.execution_state.status) }}{% endif %}
+      {% if event.execution_state.progress is defined and event.execution_state.progress is not none %}{{ event.execution_state.progress }}%{% endif %}
+      {{ event.execution_state.summary or "" }}
+    </dd>
+    {% endif %}
+  </dl>
+  <details class="output">
+    <summary>Payload <span class="muted">(data)</span></summary>
+    <pre>{{ data_json }}</pre>
+  </details>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Executions</h2>
+    {% if event.executions_truncated %}<span class="hint">최근 {{ executions | length }}개만 표시</span>{% endif %}
+  </div>
+  {% if executions %}
+  {% for x in executions %}
+  <article class="exec" id="{{ x.execution_id }}">
+    <div class="exec-head">
+      {{ m.status(x.status) }}
+      <span class="mono">{{ x.hook_name }}</span>
+      <span class="muted">
+        exit {% if x.exit_code is not none %}{{ x.exit_code }}{% else %}—{% endif %}
+        · {{ duration(x.started_at, x.finished_at) }}
+        · {{ x.started_at | when }}
+      </span>
+      <span class="mono muted exec-id">{{ x.execution_id }}</span>
+    </div>
+    {% set problem = x.status in ('failed', 'timeout') %}
+    {% if x.stderr %}
+    <details class="output"{% if problem %} open{% endif %}>
+      <summary>stderr</summary>
+      <pre>{{ x.stderr }}</pre>
+    </details>
+    {% endif %}
+    {% if x.stdout %}
+    <details class="output"{% if problem and not x.stderr %} open{% endif %}>
+      <summary>stdout</summary>
+      <pre>{{ x.stdout }}</pre>
+    </details>
+    {% endif %}
+    {% if not x.stdout and not x.stderr %}
+    <p class="empty">출력 없음</p>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% else %}
+  <p class="empty">이 이벤트로 실행된 훅이 없습니다.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

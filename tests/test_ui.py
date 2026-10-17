@@ -856,3 +856,98 @@ async def test_ui_disable_channel_and_harness_errors(tmp_path: Path) -> None:
         assert unknown.status_code == 303
         assert "err=" in unknown.headers["location"]
 
+
+
+@pytest.mark.asyncio
+async def test_ui_event_detail_shows_executions_and_output(tmp_path: Path) -> None:
+    application = create_app(
+        db_path=tmp_path / "ui-detail.db",
+        secret_key="ui-detail-key",
+        enable_ui=True,
+    )
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        eng: Engine = application.state.engine
+        event, _matched, _execs = await eng.process_event(
+            {"hello": "<b>payload</b>"},
+            "generic",
+            dispatch=False,
+        )
+        failed = ExecutionData(
+            hook_name="ui-fail",
+            event_id=event.id,
+            status="failed",
+            exit_code=2,
+            stdout="partial\n",
+            stderr="<script>boom</script>\n",
+            started_at="2026-10-17T03:00:00Z",
+            finished_at="2026-10-17T03:01:05Z",
+        )
+        ok = ExecutionData(
+            hook_name="ui-ok",
+            event_id=event.id,
+            status="completed",
+            exit_code=0,
+            stdout="fine\n",
+        )
+        await eng.store.record_execution(failed)
+        await eng.store.record_execution(ok)
+
+        executions = (await client.get("/ui/partials/executions")).text
+        assert f'href="/ui/events/{event.id}#{failed.execution_id}"' in executions
+        assert 'class="status status-failed"' in executions
+        assert 'class="status status-completed"' in executions
+        events = (await client.get("/ui/partials/events")).text
+        assert f'href="/ui/events/{event.id}"' in events
+        assert "<time datetime=" in events
+
+        res = await client.get(f"/ui/events/{event.id}")
+        assert res.status_code == 200
+        body = res.text
+        assert event.id in body
+        assert f'id="{failed.execution_id}"' in body
+        assert "ui-fail" in body and "ui-ok" in body
+        assert "partial" in body and "fine" in body
+        assert "1m 5s" in body
+        # Output and payload are escaped, and failed runs open their stderr.
+        assert "<script>boom</script>" not in body
+        assert "&lt;script&gt;boom&lt;/script&gt;" in body
+        assert "<b>payload</b>" not in body
+        assert '<details class="output" open>\n      <summary>stderr</summary>' in body
+
+        # Progress state without a ``progress`` number renders no stray "%".
+        await eng.store.put_state(event.id, "execution", {"status": "running", "summary": "busy"})
+        progress = (await client.get(f"/ui/events/{event.id}")).text
+        progress_row = progress[progress.index("<dt>Progress</dt>") :]
+        progress_row = progress_row[: progress_row.index("</dd>")]
+        assert "busy" in progress_row
+        assert "%" not in progress_row
+
+        missing = await client.get("/ui/events/evt_missing")
+        assert missing.status_code == 404
+        assert "이벤트를 찾을 수 없습니다" in missing.text
+
+
+@pytest.mark.asyncio
+async def test_ui_agent_brief_collapses_once_hooks_exist(tmp_path: Path) -> None:
+    application = create_app(
+        db_path=tmp_path / "ui-brief-collapse.db",
+        secret_key="ui-brief-collapse-key",
+        enable_ui=True,
+    )
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        assert "data-agent-brief open" in (await client.get("/ui")).text
+        eng: Engine = application.state.engine
+        await eng.store.create_hook(
+            HookCreate(name="h", topic="generic:event", exec="true", timeout=5)
+        )
+        body = (await client.get("/ui")).text
+        assert "data-agent-brief>" in body
+        assert "data-copy-agent-brief" in body

@@ -96,7 +96,7 @@ main {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
 }
 
 th,
@@ -120,6 +120,12 @@ th {
   font-size: 0.8rem;
 }
 
+/* Identifiers never break mid-name; the table scrolls instead. */
+td.mono {
+  font-size: inherit;
+  white-space: nowrap;
+}
+
 .truncate {
   max-width: 18rem;
   overflow: hidden;
@@ -133,24 +139,160 @@ th {
   font-size: 0.9rem;
 }
 
+/* Shared state badge for hooks, executions, and completion. */
 .status {
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  text-transform: lowercase;
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
-.status-completed {
+.status-completed,
+.status-active {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .status-failed,
 .status-timeout {
-  color: var(--bad);
+  color: #f0a8a8;
+  border-color: color-mix(in srgb, var(--bad) 60%, transparent);
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
 }
 
 .status-running,
 .status-pending {
   color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+}
+
+/* Tables scroll sideways inside the panel; shadows show there is more. */
+.table-wrap {
+  overflow-x: auto;
+  background:
+    linear-gradient(to right, var(--panel) 30%, transparent) left / 2rem 100% no-repeat local,
+    linear-gradient(to left, var(--panel) 30%, transparent) right / 2rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 55%), transparent) left / 0.75rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 55%), transparent) right / 0.75rem 100% no-repeat scroll;
+}
+
+td.num {
+  font-variant-numeric: tabular-nums;
+}
+
+td.time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.rel {
+  color: var(--muted);
+}
+
+td a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+/* Event detail */
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+}
+
+.kv dt {
+  color: var(--muted);
+}
+
+.kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sync-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.3rem;
+}
+
+.exec {
+  border-top: 1px solid var(--line);
+  padding: 0.7rem 0;
+}
+
+.exec:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.exec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.86rem;
+}
+
+.exec-id {
+  margin-left: auto;
+}
+
+.output {
+  margin-top: 0.45rem;
+}
+
+.output summary {
+  cursor: pointer;
+  width: fit-content;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.output pre {
+  margin: 0.35rem 0 0;
+  max-height: 24rem;
+  overflow: auto;
+  padding: 0.6rem 0.7rem;
+  background: #101418;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+details.agent-brief > summary {
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 0;
+}
+
+details.agent-brief > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.agent-brief > summary h2::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+details.agent-brief[open] > summary {
+  margin-bottom: 0.65rem;
+}
+
+details.agent-brief[open] > summary h2::before {
+  content: "▾ ";
 }
 
 .brand-row {
@@ -618,5 +760,15 @@ hr.sep {
 
   .truncate {
     max-width: 9rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .col-opt {
+    display: none;
+  }
+
+  .exec-id {
+    margin-left: 0;
   }
 }

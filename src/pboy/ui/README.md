@@ -9,6 +9,7 @@ Embedded local dashboard mounted when `pboy daemon --ui` or `pboy ui` runs.
 | `mount.py` | Routes: overview, settings forms, HTMX partials |
 | `agent_brief.py` | English agent brief (copy-to-clipboard source of truth) |
 | `guides.py` | Layman copy, official links, field tooltips |
+| `formatting.py` | Jinja filters: local time + relative hint, short IDs, durations |
 | `templates/` | Jinja2 pages + partials |
 | `static/` | CSS + vendored HTMX |
 
@@ -16,7 +17,8 @@ Embedded local dashboard mounted when `pboy daemon --ui` or `pboy ui` runs.
 
 | Path | Role |
 |------|------|
-| `/ui` | Overview — agent brief + hooks / events / executions |
+| `/ui` | Overview — agent brief (collapsed once a hook exists) + hooks / events / executions; IDs link to the event page |
+| `/ui/events/{id}` | Event payload, completion, and each execution's status / exit / duration with stdout and stderr (same data as `pboy event get --verbose`) |
 | `/ui/agent-brief.txt` | Plain-text agent brief (same body as the copy button) |
 | `/ui/settings` | Channel tokens + enable/disable; Telegram bot setup and account connect each show one step at a time (bot: token → enable → pair → protected; App API: keys → phone → code → 2FA if asked → connected); optional Jira harness secrets |
 | `/ui/static/*` | Assets |
@@ -29,6 +31,10 @@ CLI/API reality. Operators paste it into Cursor (or similar) so an agent can hel
 settings, a session skill under `.cursor/skills/`, and hook subscription.
 
 Secrets are accepted via POST forms and **never rendered back** in full (only “저장됨”).
+
+Hook output is different: `/ui/events/{id}` shows execution stdout/stderr as stored,
+the same trust level as `GET /v1/events/{id}` and `pboy event get --verbose` (local
+operator only, see Access). Hooks should not print secrets.
 
 ## Access
 

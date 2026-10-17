@@ -96,3 +96,6 @@
 </form>
 {% endif %}
 {% endmacro %}
+
+{# One look for hook and execution states (active, paused, pending, running, completed, failed, timeout). #}
+{% macro status(value) %}<span class="status status-{{ value }}">{{ value }}</span>{% endmacro %}
