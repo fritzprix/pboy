@@ -172,6 +172,8 @@
   "err.login_failed": "Telegram 登录失败：{detail}",
   "err.2fa_required": "请输入两步验证（2FA）密码。",
   "err.verify_code_first": "请先确认验证码。",
+  "err.unknown_channel": "未知的频道“{name}”。可用：{known}",
+  "err.secret_empty": "密钥值不能为空。",
 
   "tg.pairing_message": "Pageboy 验证码：{code}\n（请在设置页面输入这 6 位数字）",
 

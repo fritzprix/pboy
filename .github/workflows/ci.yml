@@ -8,16 +8,16 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -40,12 +40,12 @@ jobs:
         run: ./scripts/smoke_demo.sh
 
   package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -64,6 +64,8 @@ jobs:
           names = zf.namelist()
           assert any(n.endswith("ui/templates/dashboard.html") for n in names)
           assert any(n.endswith("ui/static/htmx.min.js") for n in names)
+          for lang in ("en", "ko", "ja", "zh", "fr", "es"):
+              assert any(n.endswith(f"i18n/locales/{lang}.json") for n in names), lang
           meta = next(n for n in names if n.endswith("entry_points.txt"))
           text = zf.read(meta).decode()
           assert "pboy =" in text and "pb =" in text, text

@@ -172,6 +172,8 @@
   "err.login_failed": "Telegram login failed: {detail}",
   "err.2fa_required": "Enter the two-step verification (2FA) password.",
   "err.verify_code_first": "Verify the login code first.",
+  "err.unknown_channel": "Unknown channel '{name}'. Known: {known}",
+  "err.secret_empty": "Secret value must not be empty",
 
   "tg.pairing_message": "Pageboy verification code: {code}\n(Enter these 6 digits on the settings page.)",
 

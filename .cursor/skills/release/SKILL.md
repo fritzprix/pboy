@@ -36,7 +36,7 @@ Source of truth: `src/pboy/__init__.py` → `__version__` (hatch dynamic). Proce
 1. Repo root is `pboy`; working tree clean (or only intentional release edits).
 2. Fetch remote refs (`git fetch origin`).
 3. Ensure `main` has the intended release commits:
-   - Check `git log origin/main..origin/dev/0.2.x --oneline` (or latest `dev/M.m.x` train). If the user is releasing work accumulated on `dev/M.m.x` that hasn't been merged into `main` yet, merge or fast-forward `origin/dev/M.m.x` into `main` (or confirm with the user) before cutting the release commit on `main`.
+   - Check `git log origin/main..origin/dev/M.m.x --oneline` for the latest `dev/M.m.x` train (highest minor under `origin/dev/*`; after a minor release, cut the next train from `main`, e.g. `dev/0.3.x` after `0.3.0`). If the user is releasing work accumulated on `dev/M.m.x` that hasn't been merged into `main` yet, merge or fast-forward `origin/dev/M.m.x` into `main` (or confirm with the user) before cutting the release commit on `main`.
 4. Switch to `main` and ensure it is up to date with `origin/main`.
 5. Prefer CI green on latest `main` (`gh run list --branch main --limit 5`).
 6. GitHub Environment `pypi` exists; PyPI Trusted Publisher is active at

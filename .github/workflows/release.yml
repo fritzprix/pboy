@@ -10,12 +10,12 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -53,6 +53,8 @@ jobs:
           names = zipfile.ZipFile(wheels[0]).namelist()
           assert any(n.endswith("ui/templates/dashboard.html") for n in names), names
           assert any(n.endswith("ui/static/htmx.min.js") for n in names), names
+          for lang in ("en", "ko", "ja", "zh", "fr", "es"):
+              assert any(n.endswith(f"i18n/locales/{lang}.json") for n in names), lang
           assert any(n.endswith("entry_points.txt") for n in names), names
           meta = next(n for n in names if n.endswith("entry_points.txt"))
           text = zipfile.ZipFile(wheels[0]).read(meta).decode()
@@ -61,14 +63,14 @@ jobs:
           PY
 
       - name: Upload dist artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-package-distributions
           path: dist/
 
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/p/pboy
@@ -77,7 +79,7 @@ jobs:
       id-token: write
     steps:
       - name: Download dist artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-package-distributions
           path: dist/
@@ -86,7 +88,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true

@@ -25,8 +25,8 @@ from pboy.i18n import (
     HTML_LANG,
     LANGUAGE_NAMES,
     SUPPORTED_LANGS,
-    LocalizedError,
     Translator,
+    localize_error,
     negotiate_lang,
     normalize_lang,
 )
@@ -94,9 +94,7 @@ def _tr(request: Request) -> Translator:
 
 def _err_text(exc: Exception, request: Request) -> str:
     """Exception text for the ``err`` flash, localized when the error supports it."""
-    if isinstance(exc, LocalizedError):
-        return exc.localized(request_lang(request))
-    return str(exc)
+    return localize_error(exc, request_lang(request))
 
 
 def _flash(kind: str, text: str, anchor: str = "") -> RedirectResponse:

@@ -19,6 +19,20 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Fixed
+
+- The settings UI shows a rejected Telegram bot token and channel-registry errors
+  (unknown channel, empty secret) in the viewer's language; CLI/API text is unchanged.
+- `Accept-Language` parsing accepts `Q=` and `q` after other parameters.
+
+### Changed
+
+- Dependency `typer[all]` → `typer` (the `all` extra no longer exists; `rich` and
+  `shellingham` are regular typer dependencies).
+- CI/release workflows: Node 24 action majors (`checkout@v7`, `setup-python@v7`,
+  `upload-artifact@v7`, `download-artifact@v8`, `action-gh-release@v3`), runners
+  pinned to `ubuntu-24.04`, and the wheel check also requires the i18n catalogs.
+
 ## [0.3.1] — 2026-10-17
 
 Localized dashboard and settings UI, Slack thread replies, and a single
