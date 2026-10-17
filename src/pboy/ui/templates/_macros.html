@@ -1,0 +1,30 @@
+{% macro secret_field(channel, field, flags) %}
+<form
+  method="post"
+  action="/ui/settings/channels/{{ channel }}/secret"
+  class="stack secret-form"
+>
+  <input type="hidden" name="secret_name" value="{{ field.secret_name }}" />
+  <label class="field">
+    <span class="label-row">
+      {{ field.label }}
+      {% if flags[field.secret_name] %}
+      <span class="badge">저장됨</span>
+      {% else %}
+      <span class="badge muted">아직 없음</span>
+      {% endif %}
+      <button type="button" class="tip" title="{{ field.tooltip }}" aria-label="{{ field.label }} 도움말">?</button>
+    </span>
+    <input
+      type="password"
+      name="value"
+      autocomplete="off"
+      {% if not field.optional %}required{% endif %}
+      placeholder="{{ field.placeholder }}"
+      title="{{ field.tooltip }}"
+    />
+    <span class="field-help">{{ field.help }}</span>
+  </label>
+  <button type="submit" class="btn primary">이 값 저장</button>
+</form>
+{% endmacro %}

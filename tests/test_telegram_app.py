@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -248,3 +249,87 @@ async def test_changing_api_id_clears_session(store: SQLiteStore) -> None:
     reg = ChannelRegistry(emit=_noop, store=store, settings=Settings())
     await reg.set_channel_secret("telegram", "222", secret_name="api_id")
     assert await store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY) == ""
+
+
+@pytest.mark.asyncio
+async def test_login_with_2fa_moves_to_password_step(store: SQLiteStore) -> None:
+    await store.put_secret(TELEGRAM_API_ID_SECRET_KEY, "99")
+    await store.put_secret(TELEGRAM_API_HASH_SECRET_KEY, "abc")
+
+    class SessionPasswordNeededError(Exception):
+        pass
+
+    client = MagicMock()
+    client.session.save.side_effect = ["after-code-request", "after-code", "final"]
+    client.send_code_request = AsyncMock(return_value=SimpleNamespace(phone_code_hash="h"))
+
+    async def sign_in(**kwargs: Any) -> None:
+        if "code" in kwargs:
+            raise SessionPasswordNeededError()
+
+    client.sign_in = AsyncMock(side_effect=sign_in)
+    client.get_me = AsyncMock(return_value=SimpleNamespace(id=1, username="u"))
+    client.disconnect = AsyncMock()
+    sessions: list[str | None] = []
+
+    async def factory(_creds: Any, session_override: str | None, _auth: bool) -> Any:
+        sessions.append(session_override)
+        return client
+
+    service = TelegramAppService(store=store, client_factory=factory)
+    assert service.login_step == "idle"
+
+    await service.request_login_code("+821012345678")
+    assert service.login_step == "code"
+    assert service.pending_phone_masked == "+821******678"
+
+    result = await service.verify_login_code("12345")
+    assert result == {"authenticated": False, "password_required": True}
+    assert service.login_step == "password"
+    assert await store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY) is None
+
+    info = await service.verify_login_password("pw")
+    assert info["authenticated"] is True
+    assert service.login_step == "idle"
+    assert await store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY) == "final"
+    # The password step resumes the session saved after the code step.
+    assert sessions == ["", "after-code-request", "after-code"]
+
+
+@pytest.mark.asyncio
+async def test_verify_password_requires_password_step(store: SQLiteStore) -> None:
+    service = TelegramAppService(store=store)
+    with pytest.raises(ValueError):
+        await service.verify_login_password("pw")
+
+
+@pytest.mark.asyncio
+async def test_clearing_api_hash_clears_session(store: SQLiteStore) -> None:
+    from pboy.channels.registry import ChannelRegistry
+    from pboy.core.config import Settings
+
+    await store.put_secret(TELEGRAM_API_ID_SECRET_KEY, "111")
+    await store.put_secret(TELEGRAM_API_HASH_SECRET_KEY, "hash")
+    await store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "sess")
+
+    async def _noop(*_a: Any, **_k: Any) -> None:
+        return None
+
+    reg = ChannelRegistry(emit=_noop, store=store, settings=Settings())
+    await reg.set_channel_secret("telegram", "", secret_name="api_hash")
+    assert await store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY) == ""
+
+
+@pytest.mark.parametrize(
+    ("phone", "masked"),
+    [
+        ("+821012345678", "+821******678"),
+        ("+12345678", "+12****78"),
+        ("+1234", "+***4"),
+    ],
+)
+def test_mask_phone_hides_most_digits(phone: str, masked: str) -> None:
+    from pboy.channels.telegram_app import mask_phone
+
+    assert mask_phone(phone) == masked
+    assert masked.count("*") >= len(phone) // 3

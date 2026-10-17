@@ -18,7 +18,7 @@ Embedded local dashboard mounted when `pboy daemon --ui` or `pboy ui` runs.
 |------|------|
 | `/ui` | Overview — agent brief + hooks / events / executions |
 | `/ui/agent-brief.txt` | Plain-text agent brief (same body as the copy button) |
-| `/ui/settings` | Channel tokens + enable/disable + optional Jira harness secrets |
+| `/ui/settings` | Channel tokens + enable/disable; Telegram account connect shows one step at a time (App API keys → phone → code → 2FA if asked → connected); optional Jira harness secrets |
 | `/ui/static/*` | Assets |
 
 ## Agent brief

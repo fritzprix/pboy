@@ -29,6 +29,7 @@ TELEGRAM_API_HASH_SECRET_KEY = "telegram.api_hash"
 TELEGRAM_APP_SESSION_SECRET_KEY = "telegram.app_session"
 
 ExportFormat = Literal["jsonl", "md", "csv"]
+LoginStep = Literal["idle", "code", "password"]
 
 
 @dataclass(slots=True)
@@ -84,6 +85,28 @@ async def resolve_telegram_app_credentials(
         api_hash=raw_hash.strip(),
         app_session=app_session,
     )
+
+
+@dataclass(slots=True)
+class _PendingLogin:
+    """In-memory UI login between ``request_login_code`` and a completed sign-in."""
+
+    phone: str
+    phone_code_hash: str
+    temp_session: str
+    password_needed: bool = False
+
+
+def mask_phone(phone: str) -> str:
+    """Mask the middle of a phone number for display (``+821******678``).
+
+    At most a third of the characters stay visible at the front and a quarter at
+    the back, so short numbers are never shown nearly in full.
+    """
+    text = phone.strip()
+    head = min(5, len(text) // 3)
+    tail = min(4, len(text) // 4)
+    return text[:head] + "*" * (len(text) - head - tail) + text[len(text) - tail :]
 
 
 def _parse_chat_target(chat: str | int) -> str | int:
@@ -407,8 +430,30 @@ class TelegramAppService:
         self._store = store
         self._settings = settings or get_settings()
         self._client_factory = client_factory
-        # Pending interactive UI login state: (phone, phone_code_hash, temp_session_str)
-        self._pending_login: tuple[str, str, str] | None = None
+        self._pending_login: _PendingLogin | None = None
+
+    @property
+    def login_pending(self) -> bool:
+        """True after ``request_login_code`` until sign-in, cancel, or disconnect."""
+        return self._pending_login is not None
+
+    @property
+    def login_step(self) -> LoginStep:
+        """Where the interactive login stands: ``idle`` → ``code`` → ``password`` (2FA)."""
+        if self._pending_login is None:
+            return "idle"
+        return "password" if self._pending_login.password_needed else "code"
+
+    @property
+    def pending_phone_masked(self) -> str | None:
+        """Masked phone the pending code was sent to, for display."""
+        if self._pending_login is None:
+            return None
+        return mask_phone(self._pending_login.phone)
+
+    def cancel_login(self) -> None:
+        """Drop a pending login (e.g. wrong phone number or changed App API keys)."""
+        self._pending_login = None
 
     async def _open_client(
         self,
@@ -448,7 +493,11 @@ class TelegramAppService:
                 _raise_mapped_telethon(exc)
                 raise
             temp_session = client.session.save()
-            self._pending_login = (cleaned_phone, sent.phone_code_hash, temp_session)
+            self._pending_login = _PendingLogin(
+                phone=cleaned_phone,
+                phone_code_hash=sent.phone_code_hash,
+                temp_session=temp_session,
+            )
             return {
                 "phone": cleaned_phone,
                 "code_sent": True,
@@ -463,53 +512,79 @@ class TelegramAppService:
         password: str | None = None,
         phone: str | None = None,
     ) -> dict[str, Any]:
-        """Complete MTProto user login and persist `telegram.app_session` in the store."""
+        """Sign in with the OTP code and persist ``telegram.app_session``.
+
+        When the account has 2FA and no ``password`` is given, the login moves to the
+        ``password`` step and ``{"authenticated": False, "password_required": True}`` is
+        returned; finish it with ``verify_login_password``.
+        """
         cleaned_code = code.strip()
         if not cleaned_code:
             raise ValueError("인증 코드를 입력해 주세요.")
-        if self._pending_login is None:
-            raise ValueError("먼저 인증 코드 요청(1단계)을 진행해 주세요.")
-        saved_phone, phone_code_hash, temp_session = self._pending_login
-        target_phone = phone.strip() if phone and phone.strip() else saved_phone
+        pending = self._pending_login
+        if pending is None:
+            raise ValueError("먼저 전화번호로 인증 코드를 요청해 주세요.")
+        target_phone = phone.strip() if phone and phone.strip() else pending.phone
 
         creds = await resolve_telegram_app_credentials(self._store, require_auth=False)
         client = await self._open_client(
-            creds, session_override=temp_session, authenticate=False
+            creds, session_override=pending.temp_session, authenticate=False
         )
         try:
             try:
                 await client.sign_in(
                     phone=target_phone,
                     code=cleaned_code,
-                    phone_code_hash=phone_code_hash,
+                    phone_code_hash=pending.phone_code_hash,
                 )
             except Exception as exc:
                 # Handle 2FA SessionPasswordNeededError by class name (works with mocks too)
-                if exc.__class__.__name__ == "SessionPasswordNeededError":
-                    if not password or not password.strip():
-                        raise ValueError(
-                            "2단계 인증(2FA) 비밀번호가 설정된 계정입니다. 비밀번호 입력란도 함께 채워 주세요."
-                        ) from exc
-                    try:
-                        await client.sign_in(password=password.strip())
-                    except Exception as pwd_exc:
-                        _raise_mapped_telethon(pwd_exc)
-                        raise ValueError(f"Telegram 로그인 실패: {pwd_exc}") from pwd_exc
-                else:
+                if exc.__class__.__name__ != "SessionPasswordNeededError":
                     _raise_mapped_telethon(exc)
                     raise ValueError(f"Telegram 로그인 실패: {exc}") from exc
-
-            session_str = str(client.session.save())
-            await self._store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, session_str)
-            self._pending_login = None
-            me = await client.get_me()
-            return {
-                "authenticated": True,
-                "user_id": getattr(me, "id", None),
-                "username": getattr(me, "username", None),
-            }
+                if not password or not password.strip():
+                    pending.temp_session = str(client.session.save())
+                    pending.password_needed = True
+                    return {"authenticated": False, "password_required": True}
+                await self._sign_in_password(client, password)
+            return await self._finish_login(client)
         finally:
             await client.disconnect()
+
+    async def verify_login_password(self, password: str) -> dict[str, Any]:
+        """Finish a 2FA login after ``verify_login_code`` reported ``password_required``."""
+        if not password.strip():
+            raise ValueError("2단계 인증(2FA) 비밀번호를 입력해 주세요.")
+        pending = self._pending_login
+        if pending is None or not pending.password_needed:
+            raise ValueError("먼저 인증 코드를 확인해 주세요.")
+        creds = await resolve_telegram_app_credentials(self._store, require_auth=False)
+        client = await self._open_client(
+            creds, session_override=pending.temp_session, authenticate=False
+        )
+        try:
+            await self._sign_in_password(client, password)
+            return await self._finish_login(client)
+        finally:
+            await client.disconnect()
+
+    async def _sign_in_password(self, client: Any, password: str) -> None:
+        try:
+            await client.sign_in(password=password.strip())
+        except Exception as exc:
+            _raise_mapped_telethon(exc)
+            raise ValueError(f"Telegram 로그인 실패: {exc}") from exc
+
+    async def _finish_login(self, client: Any) -> dict[str, Any]:
+        session_str = str(client.session.save())
+        await self._store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, session_str)
+        self._pending_login = None
+        me = await client.get_me()
+        return {
+            "authenticated": True,
+            "user_id": getattr(me, "id", None),
+            "username": getattr(me, "username", None),
+        }
 
     async def disconnect_account(self) -> None:
         """Clear stored ``telegram.app_session`` (account disconnect)."""
@@ -775,9 +850,11 @@ __all__ = [
     "TELEGRAM_API_ID_SECRET_KEY",
     "TELEGRAM_APP_SESSION_SECRET_KEY",
     "ExportFormat",
+    "LoginStep",
     "TelegramAppCredentials",
     "TelegramAppService",
     "format_messages_export",
+    "mask_phone",
     "resolve_telegram_app_credentials",
     "serialize_dialog",
     "serialize_message",
