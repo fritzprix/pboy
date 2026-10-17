@@ -85,6 +85,15 @@ Pin a version: `uvx pboy@0.1.0 ui`.
 | Secret key (mode `0600`) | `~/.config/pboy/secret.key` |
 | Inbound Telegram files | `~/.local/share/pboy/files/telegram/` |
 | Staged outbound files | `~/.local/share/pboy/files/outbound/` |
+| Telegram App media | `~/.local/share/pboy/files/telegram_app/` |
+
+**File retention:** staged files under `data_dir/files/` are **kept forever** by
+default (no daemon startup sweep). Delete manually or prune by age:
+
+```bash
+uvx pboy files prune --dry-run --older-than 7d
+uvx pboy files prune --older-than 7d
+```
 
 Override DB with `--db` / `PB_DATABASE_URL` if you need an isolated instance.
 

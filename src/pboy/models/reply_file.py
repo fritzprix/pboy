@@ -111,7 +111,9 @@ def stage_reply_file_for_daemon(src: Path, *, files_root: Path) -> Path:
     name = _SAFE_NAME.sub("_", resolved.name).strip("._") or "upload.bin"
     # Unique prefix so two same-named sources do not overwrite each other.
     dest = dest_dir / f"{uuid.uuid4().hex[:12]}_{name[:160]}"
-    shutil.copy2(resolved, dest)
+    # ``copy`` (not ``copy2``): destination mtime is "now" so ``pboy files prune``
+    # cannot treat a newly staged reply as older than the source's mtime.
+    shutil.copy(resolved, dest)
     return dest.resolve()
 
 
