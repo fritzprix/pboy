@@ -32,13 +32,16 @@ _HARNESS_KEYS = frozenset(str(f["key"]) for f in HARNESS_SECRET_FIELDS)
 
 
 _APP_CREDENTIAL_NAMES = frozenset({"api_id", "api_hash"})
+_BOT_SECRET_NAMES = frozenset({"bot_token", "allowlist"})
 _APP_ANCHOR = "#telegram-app-api"
+_BOT_ANCHOR = "#telegram-bot"
 
 
 def _app_connected_redirect(info: dict[str, Any]) -> RedirectResponse:
     who = info.get("username") or info.get("user_id") or "ok"
     return RedirectResponse(
-        f"/ui/settings?saved={quote(f'telegram.app_session (계정 연결 완료: {who})')}",
+        f"/ui/settings?saved={quote(f'telegram.app_session (계정 연결 완료: {who})')}"
+        f"{_APP_ANCHOR}",
         status_code=303,
     )
 
@@ -52,6 +55,34 @@ def _telegram_app_step(secret_flags: dict[str, bool], *, login_step: str) -> str
     if login_step in ("code", "password"):
         return login_step
     return "phone"
+
+
+def _telegram_bot_step(
+    secret_flags: dict[str, bool],
+    *,
+    enabled: bool,
+    receiving_ok: bool,
+) -> str:
+    """Bot wake-up wizard: token → enable → pair → protected.
+
+    Stays on ``enable`` when the channel is off, not yet receiving, or the bot
+    token was rejected (``receiving_ok`` is False) so pairing is not offered.
+    """
+    if not secret_flags.get("bot_token"):
+        return "token"
+    if not enabled or not receiving_ok:
+        return "enable"
+    if not secret_flags.get("allowlist"):
+        return "pair"
+    return "protected"
+
+
+def _telegram_settings_anchor(secret_name: str) -> str:
+    if secret_name in _APP_CREDENTIAL_NAMES:
+        return _APP_ANCHOR
+    if secret_name in _BOT_SECRET_NAMES:
+        return _BOT_ANCHOR
+    return "#channel-telegram"
 
 
 async def _channel_rows(
@@ -73,9 +104,17 @@ async def _channel_rows(
             secret_flags[field["secret_name"]] = bool(stored_val and stored_val.strip())
 
         pairing_active = False
+        receiving_ok = bool(st.get("running"))
+        bot_last_error: str | None = None
         if name == "telegram":
             adapter = registry.get("telegram")
             pairing_active = bool(getattr(adapter, "pairing_active", False))
+            if adapter is not None:
+                receiving_ok = bool(getattr(adapter, "receiving_ok", False))
+                err = getattr(adapter, "last_error", None)
+                bot_last_error = str(err) if err else None
+            else:
+                receiving_ok = False
             session_val = await engine.store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY)
             secret_flags["app_session"] = bool(session_val and session_val.strip())
             for field in TELEGRAM_APP_GUIDE["fields"]:
@@ -89,12 +128,19 @@ async def _channel_rows(
             "guide": guide,
             "enabled": bool(st.get("enabled")),
             "running": bool(st.get("running")),
+            "receiving_ok": receiving_ok,
             "has_secret": bool(st.get("has_secret")),
             "secret_flags": secret_flags,
             "pairing_active": pairing_active,
         }
         if name == "telegram":
             login_step = telegram_app.login_step if telegram_app is not None else "idle"
+            row["bot_last_error"] = bot_last_error
+            row["bot_step"] = _telegram_bot_step(
+                secret_flags,
+                enabled=bool(st.get("enabled")),
+                receiving_ok=receiving_ok,
+            )
             row["app_guide"] = TELEGRAM_APP_GUIDE
             row["app_step"] = _telegram_app_step(secret_flags, login_step=login_step)
             row["app_phone_masked"] = (
@@ -207,8 +253,10 @@ def mount_ui(app: FastAPI) -> None:
                 f"/ui/settings?err={quote(str(exc))}",
                 status_code=303,
             )
-        is_app_key = name == "telegram" and secret_name in _APP_CREDENTIAL_NAMES
-        anchor = _APP_ANCHOR if is_app_key else f"#channel-{name}"
+        if name == "telegram":
+            anchor = _telegram_settings_anchor(secret_name)
+        else:
+            anchor = f"#channel-{name}"
         return RedirectResponse(
             f"/ui/settings?saved={quote(f'{name}.{secret_name}')}{anchor}",
             status_code=303,
@@ -225,7 +273,8 @@ def mount_ui(app: FastAPI) -> None:
         adapter = reg.get("telegram")
         if not isinstance(adapter, TelegramChannel) or not adapter.started:
             return RedirectResponse(
-                f"/ui/settings?err={quote('먼저 봇 토큰을 저장하고 Telegram 채널을 켜 주세요.')}",
+                f"/ui/settings?err={quote('먼저 봇 토큰을 저장하고 Telegram 채널을 켜 주세요.')}"
+                f"{_BOT_ANCHOR}",
                 status_code=303,
             )
         info = await adapter.start_pairing()
@@ -235,7 +284,7 @@ def mount_ui(app: FastAPI) -> None:
             else "telegram-pair-waiting (5분 안에 텔레그램 봇에게 아무 메시지나 보내면 코드가 답장됩니다)"
         )
         return RedirectResponse(
-            f"/ui/settings?saved={quote(msg)}",
+            f"/ui/settings?saved={quote(msg)}{_BOT_ANCHOR}",
             status_code=303,
         )
 
@@ -253,18 +302,20 @@ def mount_ui(app: FastAPI) -> None:
         adapter = reg.get("telegram")
         if not isinstance(adapter, TelegramChannel):
             return RedirectResponse(
-                f"/ui/settings?err={quote('Telegram 채널이 실행 중이 아닙니다.')}",
+                f"/ui/settings?err={quote('Telegram 채널이 실행 중이 아닙니다.')}"
+                f"{_BOT_ANCHOR}",
                 status_code=303,
             )
         try:
             await adapter.verify_pairing_code(code)
         except ValueError as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}",
+                f"/ui/settings?err={quote(str(exc))}{_BOT_ANCHOR}",
                 status_code=303,
             )
         return RedirectResponse(
-            f"/ui/settings?saved={quote('telegram.allowlist (인증 코드로 대화방 등록 완료)')}",
+            f"/ui/settings?saved={quote('telegram.allowlist (인증 코드로 대화방 등록 완료)')}"
+            f"{_BOT_ANCHOR}",
             status_code=303,
         )
 
@@ -386,15 +437,16 @@ def mount_ui(app: FastAPI) -> None:
     )
     async def ui_enable_channel(name: str, request: Request) -> RedirectResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
+        anchor = _BOT_ANCHOR if name == "telegram" else f"#channel-{name}"
         try:
             await reg.enable(name)
         except Exception as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}",
+                f"/ui/settings?err={quote(str(exc))}{anchor}",
                 status_code=303,
             )
         return RedirectResponse(
-            f"/ui/settings?saved={quote(f'{name}-enabled')}",
+            f"/ui/settings?saved={quote(f'{name}-enabled')}{anchor}",
             status_code=303,
         )
 
@@ -405,8 +457,9 @@ def mount_ui(app: FastAPI) -> None:
     async def ui_disable_channel(name: str, request: Request) -> RedirectResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
         await reg.disable(name)
+        anchor = _BOT_ANCHOR if name == "telegram" else f"#channel-{name}"
         return RedirectResponse(
-            f"/ui/settings?saved={quote(f'{name}-disabled')}",
+            f"/ui/settings?saved={quote(f'{name}-disabled')}{anchor}",
             status_code=303,
         )
 

@@ -28,3 +28,32 @@
   <button type="submit" class="btn primary">이 값 저장</button>
 </form>
 {% endmacro %}
+
+{% macro pairing_form(pairing_active) %}
+<div class="actions">
+  <form method="post" action="/ui/settings/channels/telegram/pair-start">
+    <button type="submit" class="btn">
+      {% if pairing_active %}인증 코드 다시 받기 (대기 중){% else %}대화방으로 인증 코드 받기{% endif %}
+    </button>
+  </form>
+</div>
+{% if pairing_active %}
+<form method="post" action="/ui/settings/channels/telegram/pair-verify" class="stack secret-form">
+  <label class="field">
+    <span class="label-row">도착한 6자리 코드 입력</span>
+    <input
+      type="text"
+      name="code"
+      inputmode="numeric"
+      pattern="[0-9]{6}"
+      maxlength="6"
+      autocomplete="one-time-code"
+      required
+      placeholder="예: 482910"
+    />
+    <span class="field-help">봇에게 <code>/start</code> 또는 아무 메시지를 보내면 대화방에 6자리 코드가 답장됩니다.</span>
+  </label>
+  <button type="submit" class="btn primary">코드 확인 및 내 대화방 등록</button>
+</form>
+{% endif %}
+{% endmacro %}
