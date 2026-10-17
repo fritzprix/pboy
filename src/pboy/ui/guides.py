@@ -17,6 +17,8 @@ class GuideField(TypedDict):
     tooltip: str
     help: str
     optional: NotRequired[bool]
+    # False for non-secret values (IDs) so the input is visible while typing.
+    secret: NotRequired[bool]
 
 
 class ChannelGuide(TypedDict):
@@ -95,6 +97,7 @@ CHANNEL_GUIDES: Final[list[ChannelGuide]] = [
                     "(주의: 그룹 chat.id 허용 시 그 방 전원 허용)"
                 ),
                 "optional": True,
+                "secret": False,
             },
         ],
     },
@@ -207,6 +210,7 @@ TELEGRAM_APP_GUIDE: Final[AppApiGuide] = {
             ),
             "help": "숫자만 · 봇 토큰과 다름",
             "optional": True,
+            "secret": False,
         },
         {
             "secret_name": "api_hash",
@@ -216,7 +220,7 @@ TELEGRAM_APP_GUIDE: Final[AppApiGuide] = {
                 "같은 화면에서 api_id와 함께 발급되는 hash입니다. "
                 "둘 다 저장해야 전화번호 인증으로 넘어갑니다."
             ),
-            "help": "영문+숫자 · 비우면 저장 해제",
+            "help": "영문+숫자",
             "optional": True,
         },
     ],

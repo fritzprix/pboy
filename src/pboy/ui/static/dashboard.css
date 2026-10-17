@@ -205,8 +205,13 @@ th {
   font-size: 0.95rem;
 }
 
-.lede a {
+main a:not(.btn) {
   color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+main a:not(.btn):hover {
+  color: var(--ink);
 }
 
 hr.sep {
@@ -218,29 +223,47 @@ hr.sep {
 .flow-steps {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem 0.65rem;
+  align-items: center;
+  gap: 0.35rem 0;
   list-style: none;
-  margin: 0.65rem 0 0.85rem;
+  margin: 0.4rem 0 0.85rem;
   padding: 0;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: var(--muted);
 }
 
-.flow-steps li {
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 3px;
+.flow-steps li + li::before {
+  content: "›";
+  margin: 0 0.55rem;
+  color: var(--line);
+}
+
+.flow-steps li.done {
+  color: var(--accent);
+}
+
+.flow-steps li.done::after {
+  content: " ✓";
 }
 
 .flow-steps li.current {
   color: var(--ink);
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
-.flow-steps li.done:not(.current) {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+.flow-section-title {
+  margin: 0.25rem 0 0.2rem;
+  font-size: 1.02rem;
+  font-weight: 650;
+}
+
+.flow-section-title .muted {
+  font-weight: 400;
+  font-size: 0.9rem;
 }
 
 .flow-step-title {
@@ -308,7 +331,6 @@ hr.sep {
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -347,9 +369,85 @@ hr.sep {
   margin: 0.75rem 0 1rem;
 }
 
+.stack > .btn {
+  justify-self: start;
+}
+
 .secret-form + .secret-form {
   border-top: 1px solid var(--line);
   padding-top: 0.85rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 550;
+}
+
+.field input {
+  width: 100%;
+  max-width: 36rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #101418;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.field input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.field-help code,
+.flash code,
+.note code {
+  font-family: var(--mono);
+  font-size: 0.8em;
+}
+
+.field-more {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.field-more summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.field-more p {
+  margin: 0.3rem 0 0;
+  max-width: 36rem;
+}
+
+.field-clear {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.field .field-clear input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .field {
@@ -436,8 +534,19 @@ hr.sep {
   border-color: var(--accent);
 }
 
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  border-color: var(--line);
+}
+
 .actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   margin-top: 0.5rem;
 }

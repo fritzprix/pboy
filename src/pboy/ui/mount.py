@@ -263,6 +263,53 @@ def mount_ui(app: FastAPI) -> None:
         )
 
     @app.post(
+        "/ui/settings/channels/{name}/secrets",
+        include_in_schema=False,
+    )
+    async def ui_set_channel_secrets(name: str, request: Request) -> RedirectResponse:
+        """Save several related secrets from one form (``secret__<name>`` fields).
+
+        Empty inputs keep the stored value, so one field can be updated alone.
+        A checked ``clear__<name>`` box clears an optional secret unless a new
+        value was typed for it.
+        """
+        reg: ChannelRegistry = request.app.state.channel_registry
+        form = await request.form()
+        updates = [
+            (key.removeprefix("secret__"), str(raw).strip())
+            for key, raw in form.items()
+            if key.startswith("secret__") and str(raw).strip()
+        ]
+        typed = {secret_name for secret_name, _ in updates}
+        clears = [
+            key.removeprefix("clear__")
+            for key in form
+            if key.startswith("clear__") and key.removeprefix("clear__") not in typed
+        ]
+        changes = updates + [(secret_name, "") for secret_name in clears]
+        anchor = f"#channel-{name}"
+        if name == "telegram" and changes:
+            anchor = _telegram_settings_anchor(changes[0][0])
+        if not changes:
+            return RedirectResponse(
+                f"/ui/settings?err={quote('저장할 값을 하나 이상 입력해 주세요.')}{anchor}",
+                status_code=303,
+            )
+        try:
+            for secret_name, value in changes:
+                await reg.set_channel_secret(name, value, secret_name=secret_name)
+        except ValueError as exc:
+            return RedirectResponse(
+                f"/ui/settings?err={quote(str(exc))}{anchor}",
+                status_code=303,
+            )
+        saved = ", ".join(f"{name}.{secret_name}" for secret_name, _ in changes)
+        return RedirectResponse(
+            f"/ui/settings?saved={quote(saved)}{anchor}",
+            status_code=303,
+        )
+
+    @app.post(
         "/ui/settings/channels/telegram/pair-start",
         include_in_schema=False,
     )

@@ -1,3 +1,37 @@
+{% macro field_input(name, field, saved, required=true, clear_name=none) %}
+<label class="field">
+  <span class="label-row">
+    {{ field.label }}
+    {% if saved %}
+    <span class="badge">저장됨</span>
+    {% else %}
+    <span class="badge muted">아직 없음</span>
+    {% endif %}
+  </span>
+  <input
+    type="{{ 'text' if field.secret is defined and not field.secret else 'password' }}"
+    name="{{ name }}"
+    autocomplete="off"
+    spellcheck="false"
+    {% if required %}required{% endif %}
+    placeholder="{{ field.placeholder }}"
+  />
+  <span class="field-help">{{ field.help }}</span>
+  {% if clear_name %}
+  <span class="field-clear">
+    <input type="checkbox" name="{{ clear_name }}" value="1" />
+    저장된 값 지우기
+  </span>
+  {% endif %}
+  {% if field.tooltip %}
+  <details class="field-more">
+    <summary>자세히</summary>
+    <p>{{ field.tooltip }}</p>
+  </details>
+  {% endif %}
+</label>
+{% endmacro %}
+
 {% macro secret_field(channel, field, flags) %}
 <form
   method="post"
@@ -5,27 +39,32 @@
   class="stack secret-form"
 >
   <input type="hidden" name="secret_name" value="{{ field.secret_name }}" />
-  <label class="field">
-    <span class="label-row">
-      {{ field.label }}
-      {% if flags[field.secret_name] %}
-      <span class="badge">저장됨</span>
-      {% else %}
-      <span class="badge muted">아직 없음</span>
-      {% endif %}
-      <button type="button" class="tip" title="{{ field.tooltip }}" aria-label="{{ field.label }} 도움말">?</button>
-    </span>
-    <input
-      type="password"
-      name="value"
-      autocomplete="off"
-      {% if not field.optional %}required{% endif %}
-      placeholder="{{ field.placeholder }}"
-      title="{{ field.tooltip }}"
-    />
-    <span class="field-help">{{ field.help }}</span>
-  </label>
-  <button type="submit" class="btn primary">이 값 저장</button>
+  {{ field_input('value', field, flags[field.secret_name], required=not field.optional) }}
+  <button type="submit" class="btn primary">저장</button>
+</form>
+{% endmacro %}
+
+{# Several values that only make sense together, saved by one button.
+   Empty inputs keep the stored value, so a saved field is never required;
+   saved optional fields get a "clear" checkbox instead. #}
+{% macro secret_group(channel, fields, flags, button='함께 저장') %}
+<form
+  method="post"
+  action="/ui/settings/channels/{{ channel }}/secrets"
+  class="stack secret-form"
+>
+  {% for field in fields %}
+  {% set saved = flags[field.secret_name] %}
+  {{ field_input(
+    'secret__' ~ field.secret_name,
+    field,
+    saved,
+    required=not field.optional and not saved,
+    clear_name=('clear__' ~ field.secret_name) if field.optional and saved else none,
+  ) }}
+  {% endfor %}
+  <p class="field-help">비워 둔 칸은 기존 값을 그대로 둡니다.</p>
+  <button type="submit" class="btn primary">{{ button }}</button>
 </form>
 {% endmacro %}
 

@@ -48,6 +48,7 @@
   {% set token_field = g.fields | selectattr('secret_name', 'equalto', 'bot_token') | first %}
   {% set allowlist_field = g.fields | selectattr('secret_name', 'equalto', 'allowlist') | first %}
   <div class="bot-flow" id="telegram-bot" data-bot-step="{{ bot_step }}">
+    <h3 class="flow-section-title">봇 연결 <span class="muted">· 메시지가 오면 훅 실행</span></h3>
     <ol class="flow-steps" aria-label="봇 설정 진행 단계">
       {% for label in ['1. 봇 토큰', '2. 채널 켜기', '3. 대화방 페어링', '보호됨'] %}
       <li class="{% if loop.index0 == bot_pos %}current{% elif loop.index0 < bot_pos %}done{% endif %}"
@@ -144,7 +145,7 @@
   {% set order = ['credentials', 'phone', 'code', 'connected'] %}
   {% set pos = order.index('code' if step == 'password' else step) %}
   <div class="app-api-flow" id="telegram-app-api" data-app-step="{{ step }}">
-    <h3 class="subhead">{{ ag.title }}</h3>
+    <h3 class="flow-section-title">{{ ag.title }}</h3>
     <p class="prose muted">{{ ag.blurb }}</p>
     <ol class="flow-steps" aria-label="계정 연결 진행 단계">
       {% for label in ['1. App API 등록', '2. 전화번호', '3. 2FA 비밀번호' if step == 'password' else '3. 코드 확인', '연결됨'] %}
@@ -160,16 +161,12 @@
       {% for link in ag.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>{% endfor %}에서
       발급받은 두 값을 저장하세요. 봇 토큰과 다릅니다.
     </p>
-    {% for field in ag.fields %}
-    {{ m.secret_field('telegram', field, row.secret_flags) }}
-    {% endfor %}
+    {{ m.secret_group('telegram', ag.fields, row.secret_flags, 'ID · Hash 저장') }}
     {% else %}
     <details class="flow-done">
       <summary>✓ App API 등록됨 <span class="muted">· 변경</span></summary>
-      <p class="prose muted">값을 바꾸거나 비우면 계정 연결이 해제되고 처음부터 다시 진행합니다.</p>
-      {% for field in ag.fields %}
-      {{ m.secret_field('telegram', field, row.secret_flags) }}
-      {% endfor %}
+      <p class="prose muted">값을 바꾸거나 지우면 계정 연결이 해제되고 처음부터 다시 진행합니다.</p>
+      {{ m.secret_group('telegram', ag.fields, row.secret_flags, 'ID · Hash 저장') }}
     </details>
     {% endif %}
 
@@ -231,9 +228,7 @@
   </div>
 
   {% else %}
-  {% for field in g.fields %}
-  {{ m.secret_field(g.name, field, row.secret_flags) }}
-  {% endfor %}
+  {{ m.secret_group(g.name, g.fields, row.secret_flags, '토큰 저장') }}
 
   <div class="actions">
     {% if row.enabled %}
@@ -242,10 +237,15 @@
     </form>
     {% else %}
     <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
-      <button type="submit" class="btn primary" title="토큰을 저장한 뒤 켜세요. 데몬이 바로 수신을 시도합니다.">
+      <button type="submit" class="btn primary" {% if not row.has_secret %}disabled{% endif %}>
         이 채널 켜기
       </button>
     </form>
+    {% if not row.has_secret %}
+    <span class="field-help">토큰을 모두 저장하면 켤 수 있습니다.</span>
+    {% else %}
+    <span class="field-help">켜면 데몬이 바로 수신을 시도합니다.</span>
+    {% endif %}
     {% endif %}
   </div>
   {% endif %}
@@ -286,7 +286,6 @@
         {% else %}
         <span class="badge muted">아직 없음</span>
         {% endif %}
-        <button type="button" class="tip" title="{{ field.tooltip }}" aria-label="{{ field.label }} 도움말">?</button>
       </span>
       <input
         type="password"
@@ -294,11 +293,14 @@
         autocomplete="off"
         required
         placeholder="{{ field.placeholder }}"
-        title="{{ field.tooltip }}"
       />
       <span class="field-help">{{ field.help }} · 키 이름 <code>{{ field.key }}</code></span>
+      <details class="field-more">
+        <summary>자세히</summary>
+        <p>{{ field.tooltip }}</p>
+      </details>
     </label>
-    <button type="submit" class="btn primary">이 값 저장</button>
+    <button type="submit" class="btn primary">저장</button>
   </form>
   {% endfor %}
 </section>

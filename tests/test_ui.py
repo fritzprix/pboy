@@ -331,9 +331,9 @@ async def test_ui_settings_guides_and_tooltips(tmp_path: Path) -> None:
         assert "깨우는 채널" in body
         assert "훅이 띄운 프로그램" in body
         assert 'name="secret_name" value="bot_token"' in body
-        assert 'name="secret_name" value="app_token"' in body
-        assert 'name="secret_name" value="api_id"' in body
-        assert 'name="secret_name" value="api_hash"' in body
+        assert 'name="secret__app_token"' in body
+        assert 'name="secret__api_id"' in body
+        assert 'name="secret__api_hash"' in body
         assert 'id="telegram-bot"' in body
         assert 'data-bot-step="token"' in body
         assert 'action="/ui/settings/channels/telegram/enable"' not in body
@@ -431,6 +431,78 @@ async def test_ui_settings_telegram_app_api_sequential_steps(tmp_path: Path) -> 
         await post(secret, secret_name="api_hash", value="")
         assert 'data-app-step="credentials"' in await page()
         assert await eng.store.get_secret("telegram.app_session") == ""
+
+
+@pytest.mark.asyncio
+async def test_ui_settings_secret_group_saves_together_and_keeps_blanks(tmp_path: Path) -> None:
+    application = create_app(
+        db_path=tmp_path / "ui-secret-group.db",
+        secret_key="ui-secret-group-key",
+        enable_ui=True,
+    )
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        eng: Engine = application.state.engine
+        url = "/ui/settings/channels/slack/secrets"
+
+        res = await client.post(
+            url,
+            data={"secret__bot_token": "xoxb-1", "secret__app_token": "xapp-1"},
+            follow_redirects=False,
+        )
+        assert res.status_code == 303
+        assert "#channel-slack" in res.headers["location"]
+        assert await eng.store.get_secret("slack.bot_token") == "xoxb-1"
+        assert await eng.store.get_secret("slack.app_token") == "xapp-1"
+
+        # A blank input keeps the stored value instead of clearing it.
+        await client.post(
+            url,
+            data={"secret__bot_token": "xoxb-2", "secret__app_token": ""},
+            follow_redirects=False,
+        )
+        assert await eng.store.get_secret("slack.bot_token") == "xoxb-2"
+        assert await eng.store.get_secret("slack.app_token") == "xapp-1"
+
+        empty = await client.post(
+            url,
+            data={"secret__bot_token": " ", "secret__app_token": ""},
+            follow_redirects=False,
+        )
+        assert "err=" in empty.headers["location"]
+
+        app_keys = await client.post(
+            "/ui/settings/channels/telegram/secrets",
+            data={"secret__api_id": "12345678", "secret__api_hash": "abcdef"},
+            follow_redirects=False,
+        )
+        assert "#telegram-app-api" in app_keys.headers["location"]
+        body = (await client.get("/ui/settings")).text
+        assert 'data-app-step="phone"' in body
+        # api_id is not a secret: visible while typing; the hash stays masked.
+        assert 'type="text"\n    name="secret__api_id"' in body
+        assert 'type="password"\n    name="secret__api_hash"' in body
+        # Saved values are not required again; saved optional keys offer a clear box.
+        assert 'name="clear__api_hash"' in body
+        assert 'name="clear__bot_token"' not in body
+        slack_form = body[body.index('action="/ui/settings/channels/slack/secrets"') :]
+        slack_form = slack_form[: slack_form.index("</form>")]
+        assert "required" not in slack_form
+
+        # Clearing api_hash drops the App API session and returns to step 1.
+        cleared = await client.post(
+            "/ui/settings/channels/telegram/secrets",
+            data={"secret__api_id": "", "secret__api_hash": "", "clear__api_hash": "1"},
+            follow_redirects=False,
+        )
+        assert "saved=" in cleared.headers["location"]
+        assert await eng.store.get_secret("telegram.api_hash") == ""
+        assert await eng.store.get_secret("telegram.api_id") == "12345678"
+        body = (await client.get("/ui/settings")).text
+        assert 'data-app-step="credentials"' in body
 
 
 @pytest.mark.asyncio
