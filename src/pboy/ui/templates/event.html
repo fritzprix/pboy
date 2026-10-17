@@ -1,27 +1,27 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
-{% block title %}Pageboy · {{ event.id | short_id if event else "이벤트 없음" }}{% endblock %}
+{% import "_macros.html" as m with context %}
+{% block title %}Pageboy · {{ event.id | short_id if event else t('event.missing_title') }}{% endblock %}
 {% block content %}
-<p class="lede"><a href="/ui">← 한눈에</a></p>
+<p class="lede"><a href="/ui">← {{ t('nav.overview') }}</a></p>
 
 {% if not event %}
 <section class="panel">
-  <div class="panel-head"><h2>이벤트를 찾을 수 없습니다</h2></div>
-  <p class="prose muted"><code>{{ event_id }}</code> — 지워졌거나 ID가 잘못되었습니다.</p>
+  <div class="panel-head"><h2>{{ t('event.not_found') }}</h2></div>
+  <p class="prose muted"><code>{{ event_id }}</code> — {{ t('event.not_found_body') }}</p>
 </section>
 {% else %}
 <section class="panel">
   <div class="panel-head">
-    <h2>Event</h2>
+    <h2>{{ t('event.heading') }}</h2>
     {% if event.completion %}{{ m.status(event.completion.status) }}{% endif %}
   </div>
   <dl class="kv">
-    <dt>ID</dt><dd class="mono">{{ event.id }}</dd>
-    <dt>Source</dt><dd>{{ event.source }}</dd>
-    <dt>Type</dt><dd class="mono">{{ event.type }}</dd>
-    <dt>Time</dt><dd class="time">{{ event.time | when }}</dd>
+    <dt>{{ t('col.id') }}</dt><dd class="mono">{{ event.id }}</dd>
+    <dt>{{ t('col.source') }}</dt><dd>{{ event.source }}</dd>
+    <dt>{{ t('col.type') }}</dt><dd class="mono">{{ event.type }}</dd>
+    <dt>{{ t('col.time') }}</dt><dd class="time">{{ event.time | when }}</dd>
     {% if event.completion %}
-    <dt>Completed</dt>
+    <dt>{{ t('event.completed') }}</dt>
     <dd>
       {{ event.completion.summary }}
       <span class="muted">· {{ event.completion.completed_at | when }}</span>
@@ -34,7 +34,7 @@
       {% endfor %}
     </dd>
     {% elif event.execution_state %}
-    <dt>Progress</dt>
+    <dt>{{ t('event.progress') }}</dt>
     <dd>
       {% if event.execution_state.status %}{{ m.status(event.execution_state.status) }}{% endif %}
       {% if event.execution_state.progress is defined and event.execution_state.progress is not none %}{{ event.execution_state.progress }}%{% endif %}
@@ -43,15 +43,15 @@
     {% endif %}
   </dl>
   <details class="output">
-    <summary>Payload <span class="muted">(data)</span></summary>
+    <summary>{{ t('event.payload') }} <span class="muted">(data)</span></summary>
     <pre>{{ data_json }}</pre>
   </details>
 </section>
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Executions</h2>
-    {% if event.executions_truncated %}<span class="hint">최근 {{ executions | length }}개만 표시</span>{% endif %}
+    <h2>{{ t('event.executions') }}</h2>
+    {% if event.executions_truncated %}<span class="hint">{{ t('event.truncated', count=executions | length) }}</span>{% endif %}
   </div>
   {% if executions %}
   {% for x in executions %}
@@ -80,12 +80,12 @@
     </details>
     {% endif %}
     {% if not x.stdout and not x.stderr %}
-    <p class="empty">출력 없음</p>
+    <p class="empty">{{ t('event.no_output') }}</p>
     {% endif %}
   </article>
   {% endfor %}
   {% else %}
-  <p class="empty">이 이벤트로 실행된 훅이 없습니다.</p>
+  <p class="empty">{{ t('event.no_executions') }}</p>
   {% endif %}
 </section>
 {% endif %}

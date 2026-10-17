@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 
 from markupsafe import Markup, escape
 
+from pboy.i18n import DEFAULT_LANG, translate
+
 
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
@@ -17,19 +19,19 @@ def _parse_iso(value: str | None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def relative_ko(then: datetime, now: datetime) -> str:
-    """Short Korean relative hint ("방금", "3분 전", "2일 전")."""
+def relative(then: datetime, now: datetime, lang: str = DEFAULT_LANG) -> str:
+    """Short relative hint ("just now", "3 min ago", "2 d ago") in ``lang``."""
     seconds = int((now - then).total_seconds())
     if seconds < 60:
-        return "방금"
+        return translate(lang, "rel.just_now")
     if seconds < 3600:
-        return f"{seconds // 60}분 전"
+        return translate(lang, "rel.minutes", n=seconds // 60)
     if seconds < 86400:
-        return f"{seconds // 3600}시간 전"
-    return f"{seconds // 86400}일 전"
+        return translate(lang, "rel.hours", n=seconds // 3600)
+    return translate(lang, "rel.days", n=seconds // 86400)
 
 
-def when(value: str | None, now: datetime | None = None) -> Markup:
+def when(value: str | None, now: datetime | None = None, lang: str = DEFAULT_LANG) -> Markup:
     """Render an ISO timestamp as local ``MM-DD HH:MM:SS`` plus a relative hint.
 
     The daemon is loopback-only, so the server's local zone is the viewer's.
@@ -45,7 +47,7 @@ def when(value: str | None, now: datetime | None = None) -> Markup:
     ).format(
         iso=value,
         local=local.strftime("%m-%d %H:%M:%S"),
-        rel=relative_ko(parsed, current),
+        rel=relative(parsed, current, lang),
     )
 
 
@@ -75,4 +77,4 @@ def short_id(value: str | None, keep: int = 6) -> str:
     return f"{prefix}_…{value[-keep:]}"
 
 
-__all__ = ["duration", "relative_ko", "short_id", "when"]
+__all__ = ["duration", "relative", "short_id", "when"]

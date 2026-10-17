@@ -772,3 +772,27 @@ hr.sep {
     margin-left: 0;
   }
 }
+
+.lang-switch {
+  margin: 0;
+  margin-left: auto;
+}
+
+.lang-switch select {
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line, currentColor);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

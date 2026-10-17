@@ -24,6 +24,9 @@ from pboy.models.execution import ExecutionData
 from pboy.models.hook import HookCreate
 from pboy.ui.agent_brief import render_agent_brief
 
+# These UI tests were written against the Korean copy; negotiate it explicitly.
+_KO = {"Accept-Language": "ko-KR,ko;q=0.9"}
+
 
 def _mock_telegram_http(
     *,
@@ -317,7 +320,7 @@ async def test_ui_settings_guides_and_tooltips(tmp_path: Path) -> None:
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1", headers=_KO) as client,
     ):
         page = await client.get("/ui/settings")
         assert page.status_code == 200
@@ -381,7 +384,7 @@ async def test_ui_settings_telegram_app_api_sequential_steps(tmp_path: Path) -> 
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1", headers=_KO) as client,
     ):
         eng: Engine = application.state.engine
         application.state.telegram_app = TelegramAppService(
@@ -586,7 +589,7 @@ async def test_ui_settings_telegram_bot_sequential_steps(tmp_path: Path) -> None
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1", headers=_KO) as client,
     ):
         eng: Engine = application.state.engine
 
@@ -660,7 +663,7 @@ async def test_ui_settings_telegram_bot_sequential_steps(tmp_path: Path) -> None
             follow_redirects=False,
         )
         assert pair_verify.status_code == 303
-        assert "telegram.allowlist" in pair_verify.headers["location"]
+        assert pair_verify.headers["location"].startswith("/ui/settings?ok=")
         assert "#telegram-bot" in pair_verify.headers["location"]
         assert await eng.store.get_secret("telegram.allowlist") == "777888"
 
@@ -688,7 +691,7 @@ async def test_ui_settings_telegram_bot_bad_token_stays_on_enable(
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1", headers=_KO) as client,
     ):
         await client.post(
             "/ui/settings/channels/telegram/secret",
@@ -725,7 +728,7 @@ async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> No
     transport = ASGITransport(app=application)
     async with (
         application.router.lifespan_context(application),
-        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+        AsyncClient(transport=transport, base_url="http://127.0.0.1", headers=_KO) as client,
     ):
         save = await client.post(
             "/ui/settings/channels/telegram/secret",
@@ -762,7 +765,7 @@ async def test_ui_settings_save_telegram_secret_and_enable(tmp_path: Path) -> No
             follow_redirects=False,
         )
         assert pair_verify.status_code == 303
-        assert "telegram.allowlist" in pair_verify.headers["location"]
+        assert pair_verify.headers["location"].startswith("/ui/settings?ok=")
         assert await eng.store.get_secret("telegram.allowlist") == "777888"
 
 
@@ -843,7 +846,7 @@ async def test_ui_disable_channel_and_harness_errors(tmp_path: Path) -> None:
             follow_redirects=False,
         )
         assert disable.status_code == 303
-        assert "disabled" in disable.headers["location"]
+        assert "turned%20off" in disable.headers["location"]
         status = await application.state.channel_registry.list_status()
         tg = next(r for r in status if r["name"] == "telegram")
         assert tg["enabled"] is False
@@ -928,7 +931,7 @@ async def test_ui_event_detail_shows_executions_and_output(tmp_path: Path) -> No
 
         missing = await client.get("/ui/events/evt_missing")
         assert missing.status_code == 404
-        assert "이벤트를 찾을 수 없습니다" in missing.text
+        assert "Event not found" in missing.text
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,9 @@ from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
+from jinja2.runtime import Context
+from markupsafe import Markup
 
 from pboy.channels.registry import ChannelRegistry
 from pboy.channels.telegram_app import (
@@ -18,22 +21,65 @@ from pboy.channels.telegram_app import (
     TelegramAppService,
 )
 from pboy.core.engine import Engine
+from pboy.i18n import (
+    HTML_LANG,
+    LANGUAGE_NAMES,
+    SUPPORTED_LANGS,
+    LocalizedError,
+    Translator,
+    negotiate_lang,
+    normalize_lang,
+)
 from pboy.ui.agent_brief import render_agent_brief
 from pboy.ui.formatting import duration, short_id, when
 from pboy.ui.guides import (
-    CHANNEL_GUIDES,
-    HARNESS_SECRET_FIELDS,
-    JIRA_INFO,
-    TELEGRAM_APP_GUIDE,
+    HARNESS_SECRET_KEYS,
+    channel_guides,
+    harness_secret_fields,
+    jira_info,
+    telegram_app_guide,
 )
 
 _UI_ROOT = Path(__file__).resolve().parent
-_TEMPLATES = Jinja2Templates(directory=str(_UI_ROOT / "templates"))
-_TEMPLATES.env.filters["when"] = when
+LANG_COOKIE = "pboy_lang"
+
+
+def request_lang(request: Request) -> str:
+    """Viewer language: ``pboy_lang`` cookie, then ``Accept-Language``, then English."""
+    return normalize_lang(request.cookies.get(LANG_COOKIE)) or negotiate_lang(
+        request.headers.get("accept-language")
+    )
+
+
+def _i18n_context(request: Request) -> dict[str, Any]:
+    t = Translator(request_lang(request))
+    path = request.url.path
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
+    return {
+        "t": t,
+        "th": t.html,
+        "lang": t.lang,
+        "html_lang": HTML_LANG.get(t.lang, t.lang),
+        "languages": [(code, LANGUAGE_NAMES[code]) for code in SUPPORTED_LANGS],
+        "current_path": path,
+    }
+
+
+@pass_context
+def _when_filter(ctx: Context, value: str | None) -> Markup:
+    return when(value, lang=ctx.get("lang") or "en")
+
+
+_TEMPLATES = Jinja2Templates(
+    directory=str(_UI_ROOT / "templates"),
+    context_processors=[_i18n_context],
+)
+_TEMPLATES.env.filters["when"] = _when_filter
 _TEMPLATES.env.filters["short_id"] = short_id
 _TEMPLATES.env.globals["duration"] = duration
 
-_HARNESS_KEYS = frozenset(str(f["key"]) for f in HARNESS_SECRET_FIELDS)
+_HARNESS_KEYS = frozenset(HARNESS_SECRET_KEYS)
 
 
 _APP_CREDENTIAL_NAMES = frozenset({"api_id", "api_hash"})
@@ -42,13 +88,25 @@ _APP_ANCHOR = "#telegram-app-api"
 _BOT_ANCHOR = "#telegram-bot"
 
 
-def _app_connected_redirect(info: dict[str, Any]) -> RedirectResponse:
+def _tr(request: Request) -> Translator:
+    return Translator(request_lang(request))
+
+
+def _err_text(exc: Exception, request: Request) -> str:
+    """Exception text for the ``err`` flash, localized when the error supports it."""
+    if isinstance(exc, LocalizedError):
+        return exc.localized(request_lang(request))
+    return str(exc)
+
+
+def _flash(kind: str, text: str, anchor: str = "") -> RedirectResponse:
+    """Redirect to settings with an ``ok`` / ``err`` / ``saved`` flash."""
+    return RedirectResponse(f"/ui/settings?{kind}={quote(text)}{anchor}", status_code=303)
+
+
+def _app_connected_redirect(request: Request, info: dict[str, Any]) -> RedirectResponse:
     who = info.get("username") or info.get("user_id") or "ok"
-    return RedirectResponse(
-        f"/ui/settings?saved={quote(f'telegram.app_session (계정 연결 완료: {who})')}"
-        f"{_APP_ANCHOR}",
-        status_code=303,
-    )
+    return _flash("ok", _tr(request)("flash.app_connected", who=who), _APP_ANCHOR)
 
 
 def _telegram_app_step(secret_flags: dict[str, bool], *, login_step: str) -> str:
@@ -94,12 +152,14 @@ async def _channel_rows(
     registry: ChannelRegistry,
     *,
     engine: Engine,
+    t: Translator,
     telegram_app: TelegramAppService | None = None,
 ) -> list[dict[str, Any]]:
     status_rows = await registry.list_status()
     by_name = {str(r["name"]): r for r in status_rows}
+    app_guide = telegram_app_guide(t)
     rows: list[dict[str, Any]] = []
-    for guide in CHANNEL_GUIDES:
+    for guide in channel_guides(t):
         name = guide["name"]
         st = by_name.get(name, {})
         secret_flags: dict[str, bool] = {}
@@ -116,13 +176,17 @@ async def _channel_rows(
             pairing_active = bool(getattr(adapter, "pairing_active", False))
             if adapter is not None:
                 receiving_ok = bool(getattr(adapter, "receiving_ok", False))
+                err_i18n = getattr(adapter, "last_error_i18n", None)
                 err = getattr(adapter, "last_error", None)
-                bot_last_error = str(err) if err else None
+                if err_i18n:
+                    bot_last_error = t(err_i18n[0], **err_i18n[1])
+                else:
+                    bot_last_error = str(err) if err else None
             else:
                 receiving_ok = False
             session_val = await engine.store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY)
             secret_flags["app_session"] = bool(session_val and session_val.strip())
-            for field in TELEGRAM_APP_GUIDE["fields"]:
+            for field in app_guide["fields"]:
                 full_key = f"telegram.{field['secret_name']}"
                 stored_val = await engine.store.get_secret(full_key)
                 secret_flags[field["secret_name"]] = bool(
@@ -146,7 +210,7 @@ async def _channel_rows(
                 enabled=bool(st.get("enabled")),
                 receiving_ok=receiving_ok,
             )
-            row["app_guide"] = TELEGRAM_APP_GUIDE
+            row["app_guide"] = app_guide
             row["app_step"] = _telegram_app_step(secret_flags, login_step=login_step)
             row["app_phone_masked"] = (
                 telegram_app.pending_phone_masked if telegram_app is not None else None
@@ -155,9 +219,9 @@ async def _channel_rows(
     return rows
 
 
-async def _harness_secret_status(engine: Engine) -> list[dict[str, Any]]:
+async def _harness_secret_status(engine: Engine, t: Translator) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for field in HARNESS_SECRET_FIELDS:
+    for field in harness_secret_fields(t):
         key = str(field["key"])
         exists = (await engine.store.get_secret(key)) is not None
         out.append({**field, "exists": exists})
@@ -174,6 +238,20 @@ def mount_ui(app: FastAPI) -> None:
         StaticFiles(directory=str(_UI_ROOT / "static")),
         name="ui-static",
     )
+
+    @app.get("/ui/lang", include_in_schema=False)
+    async def ui_set_lang(
+        lang: str = Query(default=""),
+        next: str = Query(default="/ui"),
+    ) -> RedirectResponse:
+        """Remember the picked language in a cookie and go back to the page."""
+        # Only same-app paths, so the switcher cannot become an open redirect.
+        target = next if next.startswith("/ui") and not next.startswith("//") else "/ui"
+        response = RedirectResponse(target, status_code=303)
+        code = normalize_lang(lang)
+        if code:
+            response.set_cookie(LANG_COOKIE, code, max_age=365 * 86400, path="/", samesite="lax")
+        return response
 
     @app.get(
         "/ui",
@@ -249,6 +327,7 @@ def mount_ui(app: FastAPI) -> None:
     async def ui_settings(
         request: Request,
         saved: str | None = Query(default=None),
+        ok: str | None = Query(default=None),
         err: str | None = Query(default=None),
     ) -> HTMLResponse:
         eng: Engine = request.app.state.engine
@@ -256,16 +335,18 @@ def mount_ui(app: FastAPI) -> None:
         tg_app: TelegramAppService | None = getattr(
             request.app.state, "telegram_app", None
         )
+        t = _tr(request)
         ctx: dict[str, Any] = {}
         ctx.update(
             {
                 "page": "settings",
                 "channels": await _channel_rows(
-                    reg, engine=eng, telegram_app=tg_app
+                    reg, engine=eng, t=t, telegram_app=tg_app
                 ),
-                "jira_info": JIRA_INFO,
-                "harness_secrets": await _harness_secret_status(eng),
+                "jira_info": jira_info(t),
+                "harness_secrets": await _harness_secret_status(eng, t),
                 "flash_saved": saved,
+                "flash_ok": ok,
                 "flash_err": err,
             }
         )
@@ -286,7 +367,7 @@ def mount_ui(app: FastAPI) -> None:
             await reg.set_channel_secret(name, value, secret_name=secret_name)
         except ValueError as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}",
+                f"/ui/settings?err={quote(_err_text(exc, request))}",
                 status_code=303,
             )
         if name == "telegram":
@@ -327,16 +408,13 @@ def mount_ui(app: FastAPI) -> None:
         if name == "telegram" and changes:
             anchor = _telegram_settings_anchor(changes[0][0])
         if not changes:
-            return RedirectResponse(
-                f"/ui/settings?err={quote('저장할 값을 하나 이상 입력해 주세요.')}{anchor}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.need_value"), anchor)
         try:
             for secret_name, value in changes:
                 await reg.set_channel_secret(name, value, secret_name=secret_name)
         except ValueError as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}{anchor}",
+                f"/ui/settings?err={quote(_err_text(exc, request))}{anchor}",
                 status_code=303,
             )
         saved = ", ".join(f"{name}.{secret_name}" for secret_name, _ in changes)
@@ -355,21 +433,11 @@ def mount_ui(app: FastAPI) -> None:
         reg: ChannelRegistry = request.app.state.channel_registry
         adapter = reg.get("telegram")
         if not isinstance(adapter, TelegramChannel) or not adapter.started:
-            return RedirectResponse(
-                f"/ui/settings?err={quote('먼저 봇 토큰을 저장하고 Telegram 채널을 켜 주세요.')}"
-                f"{_BOT_ANCHOR}",
-                status_code=303,
-            )
-        info = await adapter.start_pairing()
-        msg = (
-            "telegram-pair-sent (대화방으로 코드를 보냈습니다)"
-            if info.get("sent_immediately")
-            else "telegram-pair-waiting (5분 안에 텔레그램 봇에게 아무 메시지나 보내면 코드가 답장됩니다)"
-        )
-        return RedirectResponse(
-            f"/ui/settings?saved={quote(msg)}{_BOT_ANCHOR}",
-            status_code=303,
-        )
+            return _flash("err", _tr(request)("flash.need_bot"), _BOT_ANCHOR)
+        # The code message goes out in the language of whoever started pairing.
+        info = await adapter.start_pairing(lang=request_lang(request))
+        key = "flash.pair_sent" if info.get("sent_immediately") else "flash.pair_waiting"
+        return _flash("ok", _tr(request)(key), _BOT_ANCHOR)
 
     @app.post(
         "/ui/settings/channels/telegram/pair-verify",
@@ -384,23 +452,15 @@ def mount_ui(app: FastAPI) -> None:
         reg: ChannelRegistry = request.app.state.channel_registry
         adapter = reg.get("telegram")
         if not isinstance(adapter, TelegramChannel):
-            return RedirectResponse(
-                f"/ui/settings?err={quote('Telegram 채널이 실행 중이 아닙니다.')}"
-                f"{_BOT_ANCHOR}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.tg_not_running"), _BOT_ANCHOR)
         try:
             await adapter.verify_pairing_code(code)
         except ValueError as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}{_BOT_ANCHOR}",
+                f"/ui/settings?err={quote(_err_text(exc, request))}{_BOT_ANCHOR}",
                 status_code=303,
             )
-        return RedirectResponse(
-            f"/ui/settings?saved={quote('telegram.allowlist (인증 코드로 대화방 등록 완료)')}"
-            f"{_BOT_ANCHOR}",
-            status_code=303,
-        )
+        return _flash("ok", _tr(request)("flash.paired"), _BOT_ANCHOR)
 
     @app.post(
         "/ui/settings/channels/telegram/app-login-start",
@@ -414,15 +474,12 @@ def mount_ui(app: FastAPI) -> None:
             request.app.state, "telegram_app", None
         )
         if service is None:
-            return RedirectResponse(
-                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.app_unavailable"))
         try:
             await service.request_login_code(phone)
         except (ValueError, RuntimeError) as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}",
+                f"/ui/settings?err={quote(_err_text(exc, request))}",
                 status_code=303,
             )
         return RedirectResponse(f"/ui/settings{_APP_ANCHOR}", status_code=303)
@@ -440,10 +497,7 @@ def mount_ui(app: FastAPI) -> None:
             request.app.state, "telegram_app", None
         )
         if service is None:
-            return RedirectResponse(
-                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.app_unavailable"))
         try:
             info = await service.verify_login_code(
                 code,
@@ -451,12 +505,12 @@ def mount_ui(app: FastAPI) -> None:
             )
         except (ValueError, RuntimeError) as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}",
+                f"/ui/settings?err={quote(_err_text(exc, request))}",
                 status_code=303,
             )
         if info.get("password_required"):
             return RedirectResponse(f"/ui/settings{_APP_ANCHOR}", status_code=303)
-        return _app_connected_redirect(info)
+        return _app_connected_redirect(request, info)
 
     @app.post(
         "/ui/settings/channels/telegram/app-login-password",
@@ -470,18 +524,15 @@ def mount_ui(app: FastAPI) -> None:
             request.app.state, "telegram_app", None
         )
         if service is None:
-            return RedirectResponse(
-                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.app_unavailable"))
         try:
             info = await service.verify_login_password(password)
         except (ValueError, RuntimeError) as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}",
+                f"/ui/settings?err={quote(_err_text(exc, request))}",
                 status_code=303,
             )
-        return _app_connected_redirect(info)
+        return _app_connected_redirect(request, info)
 
     @app.post(
         "/ui/settings/channels/telegram/app-login-cancel",
@@ -504,15 +555,9 @@ def mount_ui(app: FastAPI) -> None:
             request.app.state, "telegram_app", None
         )
         if service is None:
-            return RedirectResponse(
-                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.app_unavailable"))
         await service.disconnect_account()
-        return RedirectResponse(
-            f"/ui/settings?saved={quote('telegram.app_session (계정 연결 해제)')}",
-            status_code=303,
-        )
+        return _flash("ok", _tr(request)("flash.app_disconnected"), _APP_ANCHOR)
 
     @app.post(
         "/ui/settings/channels/{name}/enable",
@@ -525,13 +570,10 @@ def mount_ui(app: FastAPI) -> None:
             await reg.enable(name)
         except Exception as exc:
             return RedirectResponse(
-                f"/ui/settings?err={quote(str(exc))}{anchor}",
+                f"/ui/settings?err={quote(_err_text(exc, request))}{anchor}",
                 status_code=303,
             )
-        return RedirectResponse(
-            f"/ui/settings?saved={quote(f'{name}-enabled')}{anchor}",
-            status_code=303,
-        )
+        return _flash("ok", _tr(request)("flash.channel_enabled", name=name), anchor)
 
     @app.post(
         "/ui/settings/channels/{name}/disable",
@@ -541,10 +583,7 @@ def mount_ui(app: FastAPI) -> None:
         reg: ChannelRegistry = request.app.state.channel_registry
         await reg.disable(name)
         anchor = _BOT_ANCHOR if name == "telegram" else f"#channel-{name}"
-        return RedirectResponse(
-            f"/ui/settings?saved={quote(f'{name}-disabled')}{anchor}",
-            status_code=303,
-        )
+        return _flash("ok", _tr(request)("flash.channel_disabled", name=name), anchor)
 
     @app.post(
         "/ui/settings/harness-secret",
@@ -556,15 +595,9 @@ def mount_ui(app: FastAPI) -> None:
         value: str = Form(...),
     ) -> RedirectResponse:
         if key not in _HARNESS_KEYS:
-            return RedirectResponse(
-                f"/ui/settings?err={quote('Unknown harness secret key')}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.unknown_harness_key"))
         if not value.strip():
-            return RedirectResponse(
-                f"/ui/settings?err={quote('Value must not be empty')}",
-                status_code=303,
-            )
+            return _flash("err", _tr(request)("flash.value_empty"))
         eng: Engine = request.app.state.engine
         await eng.store.put_secret(key, value.strip())
         return RedirectResponse(

@@ -1,14 +1,17 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
-{% block title %}Pageboy · 채널·비밀값{% endblock %}
-{% block subtitle %}각 서비스에서 받은 열쇠를 붙여넣고, 깨우기 채널을 켭니다. 저장한 값은 다시 보여 주지 않습니다.{% endblock %}
+{% import "_macros.html" as m with context %}
+{% block title %}Pageboy · {{ t('settings.title') }}{% endblock %}
+{% block subtitle %}{{ t('settings.subtitle') }}{% endblock %}
 {% block content %}
 
 {% if flash_saved %}
-<p class="flash ok" role="status">저장했습니다: <code>{{ flash_saved }}</code> (내용은 보안상 다시 표시하지 않습니다)</p>
+<p class="flash ok" role="status">{{ th('flash.saved', what=flash_saved) }}</p>
+{% endif %}
+{% if flash_ok %}
+<p class="flash ok" role="status">{{ flash_ok }}</p>
 {% endif %}
 {% if flash_err %}
-<p class="flash bad" role="alert">저장 실패: {{ flash_err }}</p>
+<p class="flash bad" role="alert">{{ t('flash.err', what=flash_err) }}</p>
 {% endif %}
 
 {% for row in channels %}
@@ -17,15 +20,15 @@
   <div class="panel-head">
     <h2>{{ g.title }}</h2>
     <span class="status-pill {% if row.running %}on{% elif row.enabled %}enabled{% else %}off{% endif %}">
-      {% if row.running %}수신 중{% elif row.enabled %}켜짐·대기{% else %}꺼짐{% endif %}
+      {% if row.running %}{{ t('status.receiving') }}{% elif row.enabled %}{{ t('status.enabled_waiting') }}{% else %}{{ t('status.off') }}{% endif %}
     </span>
   </div>
 
-  <p class="prose"><strong>한 줄 요약:</strong> {{ g.blurb }}</p>
+  <p class="prose"><strong>{{ t('settings.summary') }}</strong> {{ g.blurb }}</p>
   <p class="prose muted">{{ g.what_it_does }}</p>
 
   {% if g.name != 'telegram' %}
-  <h3 class="subhead">이렇게 준비하세요</h3>
+  <h3 class="subhead">{{ t('settings.prepare') }}</h3>
   <ol class="steps">
     {% for step in g.steps %}
     <li>{{ step }}</li>
@@ -48,9 +51,9 @@
   {% set token_field = g.fields | selectattr('secret_name', 'equalto', 'bot_token') | first %}
   {% set allowlist_field = g.fields | selectattr('secret_name', 'equalto', 'allowlist') | first %}
   <div class="bot-flow" id="telegram-bot" data-bot-step="{{ bot_step }}">
-    <h3 class="flow-section-title">봇 연결 <span class="muted">· 메시지가 오면 훅 실행</span></h3>
-    <ol class="flow-steps" aria-label="봇 설정 진행 단계">
-      {% for label in ['1. 봇 토큰', '2. 채널 켜기', '3. 대화방 페어링', '보호됨'] %}
+    <h3 class="flow-section-title">{{ t('bot.section_title') }} <span class="muted">{{ t('bot.section_sub') }}</span></h3>
+    <ol class="flow-steps" aria-label="{{ t('bot.steps_aria') }}">
+      {% for label in [t('bot.step1'), t('bot.step2'), t('bot.step3'), t('bot.step4')] %}
       <li class="{% if loop.index0 == bot_pos %}current{% elif loop.index0 < bot_pos %}done{% endif %}"
           {% if loop.index0 == bot_pos %}aria-current="step"{% endif %}>{{ label }}</li>
       {% endfor %}
@@ -58,81 +61,69 @@
 
     {# 1 · bot token #}
     {% if bot_step == 'token' %}
-    <h4 class="flow-step-title">1단계 · 봇 토큰 저장</h4>
-    <p class="prose muted">
-      {% for link in g.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
-      에서 받은 토큰을 저장하세요.
-    </p>
+    <h4 class="flow-step-title">{{ t('bot.token_title') }}</h4>
+    {% set bot_links %}{% for link in g.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>{% if not loop.last %} · {% endif %}{% endfor %}{% endset %}
+    <p class="prose muted">{{ th('bot.token_from', links=bot_links) }}</p>
     {{ m.secret_field(g.name, token_field, row.secret_flags) }}
     {% else %}
     <details class="flow-done">
-      <summary>✓ 봇 토큰 저장됨 <span class="muted">· 변경</span></summary>
-      <p class="prose muted">토큰을 바꾸면 채널을 새 토큰으로 다시 시작합니다. Allowlist는 유지됩니다.</p>
+      <summary>{{ t('bot.token_saved') }} <span class="muted">{{ t('common.change') }}</span></summary>
+      <p class="prose muted">{{ t('bot.token_change_note') }}</p>
       {{ m.secret_field(g.name, token_field, row.secret_flags) }}
     </details>
     {% endif %}
 
     {# 2 · enable (also receiving error / not started) #}
     {% if bot_step == 'enable' %}
-    <h4 class="flow-step-title">2단계 · 채널 켜기</h4>
+    <h4 class="flow-step-title">{{ t('bot.enable_title') }}</h4>
     {% if row.enabled and not row.receiving_ok %}
     <p class="flash bad" role="alert">
       {% if row.bot_last_error %}
       {{ row.bot_last_error }}
       {% else %}
-      채널은 켜졌지만 수신이 시작되지 않았습니다. 봇 토큰이 올바른지, 네트워크를 확인한 뒤
-      끄고 다시 켜 보세요.
+      {{ t('bot.not_receiving') }}
       {% endif %}
     </p>
     <div class="actions">
       <form method="post" action="/ui/settings/channels/{{ g.name }}/disable">
-        <button type="submit" class="btn">이 채널 끄기</button>
+        <button type="submit" class="btn">{{ t('channel.disable') }}</button>
       </form>
       <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
-        <button type="submit" class="btn primary">다시 켜기</button>
+        <button type="submit" class="btn primary">{{ t('channel.reenable') }}</button>
       </form>
     </div>
     {% else %}
-    <p class="prose muted">토큰을 저장한 뒤 켜면 데몬이 바로 수신을 시도합니다.</p>
+    <p class="prose muted">{{ t('bot.enable_note') }}</p>
     <div class="actions">
       <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
-        <button type="submit" class="btn primary">이 채널 켜기</button>
+        <button type="submit" class="btn primary">{{ t('channel.enable') }}</button>
       </form>
     </div>
     {% endif %}
     {% elif bot_step in ['pair', 'protected'] %}
     <div class="flow-done-row">
-      ✓ 켜짐 · 수신 중
+      {{ t('bot.on_receiving') }}
       <form method="post" action="/ui/settings/channels/{{ g.name }}/disable">
-        <button type="submit" class="btn link">끄기</button>
+        <button type="submit" class="btn link">{{ t('channel.off_short') }}</button>
       </form>
     </div>
     {% endif %}
 
     {# 3 · pairing / allowlist #}
     {% if bot_step == 'pair' %}
-    <h4 class="flow-step-title">3단계 · 대화방 페어링</h4>
-    <p class="flash bad" role="alert">
-      Allowlist가 비어 있으면 <strong>아무 채팅이나</strong> 훅을 깨울 수 있습니다.
-      아래 인증으로 내 대화방만 등록하세요.
-    </p>
-    <p class="prose muted">
-      봇에게 메시지를 보낼 수 있는 채팅만 허용합니다. 코드 받기 → 코드 입력 순으로
-      Allowlist에 등록됩니다. <strong>봇과의 대화</strong>용이며, 아래 “계정 연결”과는 별개입니다.
-    </p>
+    <h4 class="flow-step-title">{{ t('bot.pair_title') }}</h4>
+    <p class="flash bad" role="alert">{{ th('bot.pair_warning') }}</p>
+    <p class="prose muted">{{ th('bot.pair_note') }}</p>
     {{ m.pairing_form(row.pairing_active) }}
     <details class="flow-done">
-      <summary>직접 편집 <span class="muted">· Allowlist ID</span></summary>
+      <summary>{{ t('bot.edit_directly') }} <span class="muted">{{ t('bot.allowlist_ids') }}</span></summary>
       {{ m.secret_field(g.name, allowlist_field, row.secret_flags) }}
     </details>
     {% elif bot_step == 'protected' %}
-    <div class="flow-done-row">✓ Allowlist 보호 중</div>
-    <p class="prose muted">
-      등록된 채팅만 훅을 깨웁니다. 훅을 쓰려면
-      <code>pboy hook register</code> 로 <code>telegram:message</code> 등을 구독하세요.
-    </p>
+    <div class="flow-done-row">{{ t('bot.protected') }}</div>
+    <p class="prose muted">{{ th('bot.protected_note') }}</p>
     <details class="flow-done">
-      <summary>다시 페어링 / 직접 편집</summary>
+      <summary>{{ t('bot.repair') }}</summary>
       {{ m.pairing_form(row.pairing_active) }}
       {{ m.secret_field(g.name, allowlist_field, row.secret_flags) }}
     </details>
@@ -147,8 +138,8 @@
   <div class="app-api-flow" id="telegram-app-api" data-app-step="{{ step }}">
     <h3 class="flow-section-title">{{ ag.title }}</h3>
     <p class="prose muted">{{ ag.blurb }}</p>
-    <ol class="flow-steps" aria-label="계정 연결 진행 단계">
-      {% for label in ['1. App API 등록', '2. 전화번호', '3. 2FA 비밀번호' if step == 'password' else '3. 코드 확인', '연결됨'] %}
+    <ol class="flow-steps" aria-label="{{ t('app.steps_aria') }}">
+      {% for label in [t('app.step1'), t('app.step2'), t('app.step3_2fa') if step == 'password' else t('app.step3_code'), t('app.step4')] %}
       <li class="{% if loop.index0 == pos %}current{% elif loop.index0 < pos %}done{% endif %}"
           {% if loop.index0 == pos %}aria-current="step"{% endif %}>{{ label }}</li>
       {% endfor %}
@@ -156,95 +147,89 @@
 
     {# 1 · App API credentials — open form until both are saved, then a one-line summary #}
     {% if step == 'credentials' %}
-    <h4 class="flow-step-title">1단계 · App API ID / Hash 저장</h4>
-    <p class="prose muted">
-      {% for link in ag.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>{% endfor %}에서
-      발급받은 두 값을 저장하세요. 봇 토큰과 다릅니다.
-    </p>
-    {{ m.secret_group('telegram', ag.fields, row.secret_flags, 'ID · Hash 저장') }}
+    <h4 class="flow-step-title">{{ t('app.cred_title') }}</h4>
+    {% set app_links %}{% for link in ag.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>{% endfor %}{% endset %}
+    <p class="prose muted">{{ th('app.cred_note', links=app_links) }}</p>
+    {{ m.secret_group('telegram', ag.fields, row.secret_flags, t('app.save_cred')) }}
     {% else %}
     <details class="flow-done">
-      <summary>✓ App API 등록됨 <span class="muted">· 변경</span></summary>
-      <p class="prose muted">값을 바꾸거나 지우면 계정 연결이 해제되고 처음부터 다시 진행합니다.</p>
-      {{ m.secret_group('telegram', ag.fields, row.secret_flags, 'ID · Hash 저장') }}
+      <summary>{{ t('app.cred_saved') }} <span class="muted">{{ t('common.change') }}</span></summary>
+      <p class="prose muted">{{ t('app.cred_change_note') }}</p>
+      {{ m.secret_group('telegram', ag.fields, row.secret_flags, t('app.save_cred')) }}
     </details>
     {% endif %}
 
     {# 2 · phone #}
     {% if step == 'phone' %}
-    <h4 class="flow-step-title">2단계 · 전화번호로 인증 코드 요청</h4>
+    <h4 class="flow-step-title">{{ t('app.phone_title') }}</h4>
     <form method="post" action="/ui/settings/channels/telegram/app-login-start" class="stack secret-form">
       <label class="field">
-        <span class="label-row">전화번호</span>
+        <span class="label-row">{{ t('app.phone_label') }}</span>
         <input type="tel" name="phone" autocomplete="tel" required placeholder="+821012345678" />
-        <span class="field-help">국가코드 포함 (예: +82…). 코드는 텔레그램 앱으로 옵니다.</span>
+        <span class="field-help">{{ t('app.phone_help') }}</span>
       </label>
-      <button type="submit" class="btn primary">인증 코드 요청</button>
+      <button type="submit" class="btn primary">{{ t('app.phone_submit') }}</button>
     </form>
     {% elif step in ['code', 'password'] %}
     <div class="flow-done-row">
-      ✓ <code>{{ row.app_phone_masked }}</code>로 코드를 보냈습니다
+      {{ th('app.code_sent', phone=row.app_phone_masked) }}
       <form method="post" action="/ui/settings/channels/telegram/app-login-cancel">
-        <button type="submit" class="btn link">번호 다시 입력</button>
+        <button type="submit" class="btn link">{{ t('app.reenter_phone') }}</button>
       </form>
     </div>
     {% endif %}
 
     {# 3 · code, then 2FA password only if Telegram asks for it #}
     {% if step == 'code' %}
-    <h4 class="flow-step-title">3단계 · 텔레그램 앱에 도착한 코드</h4>
-    <p class="prose muted">
-      코드 요청과 확인은 같은 데몬 프로세스에서 이어서 하세요. 데몬을 재시작하면 전화번호 단계로 돌아갑니다.
-    </p>
+    <h4 class="flow-step-title">{{ t('app.code_title') }}</h4>
+    <p class="prose muted">{{ t('app.code_note') }}</p>
     <form method="post" action="/ui/settings/channels/telegram/app-login-verify" class="stack secret-form">
       <label class="field">
-        <span class="label-row">인증 코드</span>
+        <span class="label-row">{{ t('app.code_label') }}</span>
         <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required placeholder="12345" />
       </label>
-      <button type="submit" class="btn primary">확인</button>
+      <button type="submit" class="btn primary">{{ t('app.code_submit') }}</button>
     </form>
     {% elif step == 'password' %}
-    <div class="flow-done-row">✓ 코드 확인됨</div>
-    <h4 class="flow-step-title">3단계 · 2단계 인증(2FA) 비밀번호</h4>
-    <p class="prose muted">이 계정은 2단계 인증이 켜져 있습니다. 텔레그램 클라우드 비밀번호를 입력하세요.</p>
+    <div class="flow-done-row">{{ t('app.code_ok') }}</div>
+    <h4 class="flow-step-title">{{ t('app.2fa_title') }}</h4>
+    <p class="prose muted">{{ t('app.2fa_note') }}</p>
     <form method="post" action="/ui/settings/channels/telegram/app-login-password" class="stack secret-form">
       <label class="field">
-        <span class="label-row">2FA 비밀번호</span>
+        <span class="label-row">{{ t('app.2fa_label') }}</span>
         <input type="password" name="password" autocomplete="current-password" required />
       </label>
-      <button type="submit" class="btn primary">연결 완료</button>
+      <button type="submit" class="btn primary">{{ t('app.2fa_submit') }}</button>
     </form>
     {% endif %}
 
     {# done #}
     {% if step == 'connected' %}
-    <p class="flash ok" role="status">
-      계정 연결됨 — <code>pboy telegram chats</code> 등으로 조회할 수 있습니다.
-    </p>
+    <p class="flash ok" role="status">{{ th('app.connected') }}</p>
     <form method="post" action="/ui/settings/channels/telegram/app-disconnect" class="actions">
-      <button type="submit" class="btn">계정 연결 해제</button>
+      <button type="submit" class="btn">{{ t('app.disconnect') }}</button>
     </form>
     {% endif %}
   </div>
 
   {% else %}
-  {{ m.secret_group(g.name, g.fields, row.secret_flags, '토큰 저장') }}
+  {{ m.secret_group(g.name, g.fields, row.secret_flags, t('channel.save_tokens')) }}
 
   <div class="actions">
     {% if row.enabled %}
     <form method="post" action="/ui/settings/channels/{{ g.name }}/disable">
-      <button type="submit" class="btn">이 채널 끄기</button>
+      <button type="submit" class="btn">{{ t('channel.disable') }}</button>
     </form>
     {% else %}
     <form method="post" action="/ui/settings/channels/{{ g.name }}/enable">
       <button type="submit" class="btn primary" {% if not row.has_secret %}disabled{% endif %}>
-        이 채널 켜기
+        {{ t('channel.enable') }}
       </button>
     </form>
     {% if not row.has_secret %}
-    <span class="field-help">토큰을 모두 저장하면 켤 수 있습니다.</span>
+    <span class="field-help">{{ t('channel.need_tokens') }}</span>
     {% else %}
-    <span class="field-help">켜면 데몬이 바로 수신을 시도합니다.</span>
+    <span class="field-help">{{ t('channel.enable_note') }}</span>
     {% endif %}
     {% endif %}
   </div>
@@ -256,9 +241,9 @@
   <div class="panel-head">
     <h2>{{ jira_info.title }}</h2>
   </div>
-  <p class="prose"><strong>한 줄 요약:</strong> {{ jira_info.blurb }}</p>
+  <p class="prose"><strong>{{ t('settings.summary') }}</strong> {{ jira_info.blurb }}</p>
   <p class="prose muted">{{ jira_info.what_it_does }}</p>
-  <h3 class="subhead">토큰은 이렇게 받습니다</h3>
+  <h3 class="subhead">{{ t('jira.how_to') }}</h3>
   <ol class="steps">
     {% for step in jira_info.steps %}
     <li>{{ step }}</li>
@@ -273,8 +258,8 @@
   </ul>
   <p class="note">{{ jira_info.note }}</p>
 
-  <h3 class="subhead">하네스용 비밀 보관 (선택)</h3>
-  <p class="prose muted">아래는 깨우기 채널이 아닙니다. 필요할 때 스크립트가 쓰도록 안전하게만 보관합니다.</p>
+  <h3 class="subhead">{{ t('harness.title') }}</h3>
+  <p class="prose muted">{{ t('harness.note') }}</p>
   {% for field in harness_secrets %}
   <form method="post" action="/ui/settings/harness-secret" class="stack secret-form">
     <input type="hidden" name="key" value="{{ field.key }}" />
@@ -282,9 +267,9 @@
       <span class="label-row">
         {{ field.label }}
         {% if field.exists %}
-        <span class="badge">저장됨</span>
+        <span class="badge">{{ t('field.saved') }}</span>
         {% else %}
-        <span class="badge muted">아직 없음</span>
+        <span class="badge muted">{{ t('field.not_set') }}</span>
         {% endif %}
       </span>
       <input
@@ -294,13 +279,13 @@
         required
         placeholder="{{ field.placeholder }}"
       />
-      <span class="field-help">{{ field.help }} · 키 이름 <code>{{ field.key }}</code></span>
+      <span class="field-help">{{ field.help }} · {{ t('harness.key_name') }} <code>{{ field.key }}</code></span>
       <details class="field-more">
-        <summary>자세히</summary>
+        <summary>{{ t('field.more') }}</summary>
         <p>{{ field.tooltip }}</p>
       </details>
     </label>
-    <button type="submit" class="btn primary">저장</button>
+    <button type="submit" class="btn primary">{{ t('btn.save') }}</button>
   </form>
   {% endfor %}
 </section>

@@ -1,33 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Pageboy · 한눈에{% endblock %}
+{% block title %}Pageboy · {{ t('dash.title') }}{% endblock %}
 {% block content %}
-<p class="lede">
-  채널 토큰·켜기는
-  <a href="/ui/settings">채널·비밀값</a>
-  에서 설정합니다. 아래는 현재 훅·이벤트·실행 기록이며 5초마다 새로 고칩니다.
-  이벤트나 실행 ID를 누르면 훅 출력(stdout/stderr)을 볼 수 있습니다.
-</p>
+<p class="lede">{{ th('dash.lede') }}</p>
 
 {# Mostly used once during setup: open until the first hook exists. #}
 <details class="panel agent-brief" id="agent-brief-panel" data-agent-brief{% if not hooks %} open{% endif %}>
   <summary class="panel-head">
-    <h2>에이전트 안내문</h2>
-    <span class="hint">Cursor 등에 붙여넣기</span>
+    <h2>{{ t('dash.brief.title') }}</h2>
+    <span class="hint">{{ t('dash.brief.hint') }}</span>
   </summary>
-  <p class="prose muted">
-    설정 도움 · 세션용 스킬 작성 · 이벤트 구독(훅 등록)까지 에이전트에게 맡기려면
-    아래 안내문을 복사해 채팅에 붙여넣으세요.
-  </p>
+  <p class="prose muted">{{ t('dash.brief.prose') }}</p>
   <div class="actions agent-brief-actions">
     <button
       type="button"
       class="btn primary"
       id="copy-agent-brief"
       data-copy-agent-brief
+      data-copied="{{ t('dash.brief.copied') }}"
+      data-copy-failed="{{ t('dash.brief.copy_failed') }}"
     >
-      에이전트 안내문 복사
+      {{ t('dash.brief.copy') }}
     </button>
-    <a class="btn" href="/ui/agent-brief.txt">텍스트로 열기</a>
+    <a class="btn" href="/ui/agent-brief.txt">{{ t('dash.brief.open_text') }}</a>
     <span class="hint" id="copy-agent-brief-status" aria-live="polite" hidden></span>
   </div>
   <textarea id="agent-brief-source" readonly hidden>{{ agent_brief }}</textarea>
@@ -35,7 +29,7 @@
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Hooks</h2>
+    <h2>{{ t('dash.hooks') }}</h2>
   </div>
   <div
     id="hooks"
@@ -49,7 +43,7 @@
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Recent events</h2>
+    <h2>{{ t('dash.events') }}</h2>
   </div>
   <div
     id="events"
@@ -63,7 +57,7 @@
 
 <section class="panel">
   <div class="panel-head">
-    <h2>Recent executions</h2>
+    <h2>{{ t('dash.executions') }}</h2>
   </div>
   <div
     id="executions"
@@ -113,15 +107,15 @@
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(text).then(
             function () {
-              showStatus("복사됨");
+              showStatus(btn.dataset.copied);
             },
             function () {
-              showStatus(fallbackCopy(text) ? "복사됨" : "복사 실패 — 텍스트로 열기를 쓰세요");
+              showStatus(fallbackCopy(text) ? btn.dataset.copied : btn.dataset.copyFailed);
             }
           );
           return;
         }
-        showStatus(fallbackCopy(text) ? "복사됨" : "복사 실패 — 텍스트로 열기를 쓰세요");
+        showStatus(fallbackCopy(text) ? btn.dataset.copied : btn.dataset.copyFailed);
       });
     })();
   </script>

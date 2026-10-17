@@ -1,15 +1,15 @@
-{% import "_macros.html" as m %}
+{% import "_macros.html" as m with context %}
 {% if executions %}
 <div class="table-wrap">
 <table>
   <thead>
     <tr>
-      <th scope="col">Execution</th>
-      <th scope="col">Hook</th>
-      <th scope="col" class="col-opt">Event</th>
-      <th scope="col">Status</th>
-      <th scope="col">Exit</th>
-      <th scope="col">Started</th>
+      <th scope="col">{{ t('col.execution') }}</th>
+      <th scope="col">{{ t('col.hook') }}</th>
+      <th scope="col" class="col-opt">{{ t('col.event') }}</th>
+      <th scope="col">{{ t('col.status') }}</th>
+      <th scope="col">{{ t('col.exit') }}</th>
+      <th scope="col">{{ t('col.started') }}</th>
     </tr>
   </thead>
   <tbody>
@@ -27,5 +27,5 @@
 </table>
 </div>
 {% else %}
-<p class="empty">No executions yet.</p>
+<p class="empty">{{ t('empty.executions') }}</p>
 {% endif %}
