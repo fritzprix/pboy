@@ -68,11 +68,20 @@ channel_app = typer.Typer(
     help="Manage inbound channels (telegram, slack) and encrypted secrets.",
     no_args_is_help=True,
 )
+telegram_app = typer.Typer(
+    help=(
+        "Telegram App API (user account): list dialogs, fetch messages, download media, export.\n\n"
+        "Requires api_id/api_hash + account connect in /ui/settings. "
+        "Separate from bot-token wake-up channel."
+    ),
+    no_args_is_help=True,
+)
 
 app.add_typer(hook_app, name="hook")
 app.add_typer(state_app, name="state")
 app.add_typer(event_app, name="event")
 app.add_typer(channel_app, name="channel")
+app.add_typer(telegram_app, name="telegram")
 
 
 def version_callback(value: bool) -> None:
@@ -706,8 +715,6 @@ def channel_list(
             body = client.list_channels()
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
-        if body.get("env_override"):
-            typer.echo("Note: PB_CHANNELS_ENABLED env override is active.")
         for row in body.get("channels", []):
             flags = []
             flags.append("enabled" if row.get("enabled") else "disabled")
@@ -726,9 +733,6 @@ def channel_list(
             return None
 
         reg = ChannelRegistry(emit=_noop_emit, store=store, settings=get_settings())
-        status = await reg.status()
-        if status.get("env_override"):
-            typer.echo("Note: PB_CHANNELS_ENABLED env override is active.")
         for row in await reg.list_status():
             flags = []
             flags.append("enabled" if row["enabled"] else "disabled")
@@ -745,7 +749,7 @@ def channel_enable(
     name: Annotated[str, typer.Argument(help="Channel name (e.g. telegram, slack)")],
     daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Enable a channel (persisted in store unless PB_CHANNELS_ENABLED overrides)."""
+    """Enable a channel (persisted in encrypted store)."""
     client = _daemon_client_or_none(daemon_url)
     if client is not None:
         try:
@@ -756,6 +760,7 @@ def channel_enable(
         return
 
     async def _run(store: SQLiteStore) -> None:
+        from pboy.channels.config import save_enabled_to_store
         from pboy.channels.registry import ChannelRegistry
         from pboy.core.config import get_settings
 
@@ -771,20 +776,7 @@ def channel_enable(
                 raise ValueError(f"Unknown channel '{key}'. Known: {', '.join(reg.known_names())}")
             if key not in enabled:
                 enabled.append(key)
-                from pboy.channels.config import (
-                    env_channels_enabled_override,
-                    save_enabled_to_store,
-                )
-
-                if env_channels_enabled_override() is None:
-                    await save_enabled_to_store(store, enabled)
-                else:
-                    typer.echo(
-                        "PB_CHANNELS_ENABLED is set; store not updated. "
-                        "Unset it or include the channel in the env list.",
-                        err=True,
-                    )
-                    raise typer.Exit(code=1)
+                await save_enabled_to_store(store, enabled)
             typer.echo(
                 f"Channel '{key}' enabled in store. Restart (or use daemon CLI) to start polling."
             )
@@ -811,19 +803,9 @@ def channel_disable(
         return
 
     async def _run(store: SQLiteStore) -> None:
-        from pboy.channels.config import (
-            env_channels_enabled_override,
-            load_enabled_from_store,
-            save_enabled_to_store,
-        )
+        from pboy.channels.config import load_enabled_from_store, save_enabled_to_store
 
         key = name.strip().lower()
-        if env_channels_enabled_override() is not None:
-            typer.echo(
-                "PB_CHANNELS_ENABLED is set; store not updated. Unset it to use persisted config.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
         enabled = [n for n in await load_enabled_from_store(store) if n != key]
         await save_enabled_to_store(store, enabled)
         typer.echo(f"Channel '{key}' disabled in store. Restart daemon if it was running.")
@@ -842,12 +824,15 @@ def channel_set_secret(
         str | None,
         typer.Option(
             "--secret-name",
-            help="Secret sub-key (slack: bot_token | app_token; telegram: bot_token | allowlist)",
+            help=(
+                "Secret sub-key (slack: bot_token | app_token; "
+                "telegram: bot_token | allowlist | api_id | api_hash | app_session)"
+            ),
         ),
     ] = None,
     daemon_url: DaemonUrlOption = None,
 ) -> None:
-    """Store an encrypted channel secret (e.g. telegram bot token; empty clears optional allowlist)."""
+    """Store an encrypted channel secret (empty clears optional keys like allowlist/api_*)."""
     from pboy.channels.config import optional_secret_keys_for_channel, resolve_secret_key
 
     try:
@@ -878,6 +863,160 @@ def channel_set_secret(
     async def _run(store: SQLiteStore) -> None:
         await store.put_secret(resolved_key, secret_value.strip())
         typer.echo(f"Stored secret '{resolved_key}' for channel '{name.strip().lower()}'.")
+
+    _run_with_store(_run)
+
+
+def _telegram_service(store: SQLiteStore) -> Any:
+    from pboy.channels.telegram_app import TelegramAppService
+    from pboy.core.config import get_settings
+
+    return TelegramAppService(store=store, settings=get_settings())
+
+
+@telegram_app.command("chats")
+@telegram_app.command("dialogs", hidden=True)
+def telegram_chats(
+    limit: Annotated[int, typer.Option("--limit", help="Max dialogs to return")] = 50,
+    search: Annotated[
+        str | None,
+        typer.Option("--search", help="Filter by title / username / id substring"),
+    ] = None,
+) -> None:
+    """List dialogs visible to the connected Telegram user account."""
+
+    async def _run(store: SQLiteStore) -> None:
+        service = _telegram_service(store)
+        try:
+            rows = await service.list_chats(limit=limit, search=search)
+        except RuntimeError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(json.dumps(rows, indent=2, ensure_ascii=False))
+
+    _run_with_store(_run)
+
+
+@telegram_app.command("messages")
+def telegram_messages(
+    chat: Annotated[str, typer.Argument(help="Chat id or @username (must already be in your dialogs)")],
+    limit: Annotated[int, typer.Option("--limit")] = 50,
+    offset_id: Annotated[int, typer.Option("--offset-id")] = 0,
+    min_id: Annotated[int, typer.Option("--min-id")] = 0,
+    max_id: Annotated[int, typer.Option("--max-id")] = 0,
+    since: Annotated[str | None, typer.Option("--since", help="ISO datetime")] = None,
+    until: Annotated[str | None, typer.Option("--until", help="ISO datetime")] = None,
+    search: Annotated[str | None, typer.Option("--search")] = None,
+    from_user: Annotated[str | None, typer.Option("--from-user")] = None,
+    reverse: Annotated[bool, typer.Option("--reverse")] = False,
+) -> None:
+    """Fetch messages from a chat (pagination via --offset-id / next_offset_id)."""
+
+    async def _run(store: SQLiteStore) -> None:
+        service = _telegram_service(store)
+        try:
+            body = await service.list_messages(
+                chat,
+                limit=limit,
+                offset_id=offset_id,
+                min_id=min_id,
+                max_id=max_id,
+                since=since,
+                until=until,
+                search=search,
+                from_user=from_user,
+                reverse=reverse,
+            )
+        except (RuntimeError, ValueError, LookupError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(json.dumps(body, indent=2, ensure_ascii=False))
+
+    _run_with_store(_run)
+
+
+@telegram_app.command("download")
+def telegram_download(
+    chat: Annotated[str, typer.Argument(help="Chat id or @username")],
+    message_id: Annotated[int, typer.Argument(help="Message id with media")],
+    out: Annotated[
+        str | None,
+        typer.Option("--out", help="Output file or directory"),
+    ] = None,
+) -> None:
+    """Download media attached to a message."""
+
+    async def _run(store: SQLiteStore) -> None:
+        service = _telegram_service(store)
+        try:
+            body = await service.download_message_media(chat, message_id, out_path=out)
+        except (RuntimeError, ValueError, LookupError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(json.dumps(body, indent=2, ensure_ascii=False))
+
+    _run_with_store(_run)
+
+
+@telegram_app.command("export")
+def telegram_export(
+    chat: Annotated[str, typer.Argument(help="Chat id or @username")],
+    out: Annotated[str, typer.Option("--out", help="Output path")],
+    fmt: Annotated[
+        str,
+        typer.Option("--format", help="jsonl | md | csv"),
+    ] = "jsonl",
+    limit: Annotated[int, typer.Option("--limit")] = 500,
+    offset_id: Annotated[int, typer.Option("--offset-id")] = 0,
+    min_id: Annotated[int, typer.Option("--min-id")] = 0,
+    max_id: Annotated[int, typer.Option("--max-id")] = 0,
+    since: Annotated[str | None, typer.Option("--since")] = None,
+    until: Annotated[str | None, typer.Option("--until")] = None,
+    search: Annotated[str | None, typer.Option("--search")] = None,
+    from_user: Annotated[str | None, typer.Option("--from-user")] = None,
+    reverse: Annotated[bool, typer.Option("--reverse")] = False,
+    download_media: Annotated[
+        bool,
+        typer.Option("--download-media", help="Also save attachments under data_dir"),
+    ] = False,
+) -> None:
+    """Export chat history to jsonl, markdown, or csv for analysis."""
+    from pboy.channels.telegram_app import ExportFormat
+
+    cleaned = fmt.strip().lower()
+    export_fmt: ExportFormat
+    if cleaned == "jsonl":
+        export_fmt = "jsonl"
+    elif cleaned == "md":
+        export_fmt = "md"
+    elif cleaned == "csv":
+        export_fmt = "csv"
+    else:
+        typer.echo("--format must be jsonl, md, or csv", err=True)
+        raise typer.Exit(code=1)
+
+    async def _run(store: SQLiteStore) -> None:
+        service = _telegram_service(store)
+        try:
+            body = await service.export_messages(
+                chat,
+                out_path=out,
+                fmt=export_fmt,
+                limit=limit,
+                offset_id=offset_id,
+                min_id=min_id,
+                max_id=max_id,
+                since=since,
+                until=until,
+                search=search,
+                from_user=from_user,
+                reverse=reverse,
+                download_media=download_media,
+            )
+        except (RuntimeError, ValueError, LookupError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(json.dumps(body, indent=2, ensure_ascii=False))
 
     _run_with_store(_run)
 

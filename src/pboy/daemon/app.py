@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 
 from pboy.channels.base import ChannelAdapter
 from pboy.channels.registry import ChannelRegistry
+from pboy.channels.telegram_app import TelegramAppService
 from pboy.core.config import Settings, get_settings
 from pboy.core.engine import Engine
 from pboy.daemon.guard import LocalOnlyGuard
@@ -69,6 +70,7 @@ def create_app(
     registry = ChannelRegistry(emit=engine.process_event, store=store, settings=cfg)
     for adapter in extra_adapters or []:
         registry.register(adapter)
+    telegram_app = TelegramAppService(store=store, settings=cfg)
 
     app = FastAPI(
         title="Pageboy Daemon",
@@ -79,6 +81,7 @@ def create_app(
     app.state.engine = engine
     app.state.db_path = str(store.db_path)
     app.state.channel_registry = registry
+    app.state.telegram_app = telegram_app
     app.state.ui_enabled = enable_ui
 
     @app.get("/healthz")
@@ -231,11 +234,9 @@ def create_app(
     @app.get("/v1/channels", response_model=ChannelListResponse)
     async def list_channels(request: Request) -> ChannelListResponse:
         reg: ChannelRegistry = request.app.state.channel_registry
-        status = await reg.status()
         rows = await reg.list_status()
         return ChannelListResponse(
             channels=[ChannelStatusItem.model_validate(row) for row in rows],
-            env_override=bool(status.get("env_override")),
         )
 
     @app.post(

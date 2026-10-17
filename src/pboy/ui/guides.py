@@ -89,6 +89,28 @@ CHANNEL_GUIDES: Final[list[ChannelGuide]] = [
                 ),
                 "optional": True,
             },
+            {
+                "secret_name": "api_id",
+                "label": "App API ID (대화 분석용 · my.telegram.org)",
+                "placeholder": "12345678",
+                "tooltip": (
+                    "봇 대화(wake-up)와 별개입니다. 내 계정이 속한 대화방 목록·메시지·파일 "
+                    "내보내기를 쓸 때 필요합니다. https://my.telegram.org → API development tools."
+                ),
+                "help": "숫자만 · 봇 토큰과 다릅니다 · 분석/export용",
+                "optional": True,
+            },
+            {
+                "secret_name": "api_hash",
+                "label": "App API Hash (대화 분석용)",
+                "placeholder": "0123456789abcdef…",
+                "tooltip": (
+                    "my.telegram.org에서 api_id와 함께 발급됩니다. "
+                    "아래에서 계정 연결(1회)을 마치면 대화방 전체 list가 가능합니다."
+                ),
+                "help": "영문+숫자 · 비우면 저장 해제",
+                "optional": True,
+            },
         ],
     },
     {

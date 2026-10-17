@@ -81,8 +81,9 @@ Operator-facing checklist for a **local** Alpha install. There is **no**
 | Host / machine | Single-user machine you trust. Other local OS users/processes can call the API and create hooks → **command execution** as the daemon user. |
 | Secret key | `~/.config/pboy/secret.key` is created mode `0600`. Do not chmod it world-readable; prefer not sharing the home directory. |
 | DB / files | Default DB `~/.local/share/pboy/pboy.db`; channel files under `…/files/`. Treat as sensitive (events, secrets ciphertext, attachments). |
-| Channel tokens | Store via UI/CLI/env; never commit tokens. Env overrides store when non-empty (see operator guide). |
-| Telegram allowlist | For any non-toy bot, set the allowlist in `/ui/settings` (6-digit pairing, or the allowlist field). When empty, **any** Telegram chat that messages the bot can trigger `telegram:message` hooks. Pair in a direct chat (in groups the pairing reply is visible to members; verification still needs local loopback). |
+| Channel secrets | **Store / `/ui/settings` only** (`telegram.*`, `slack.*`, `channels.enabled`). No `PB_TELEGRAM_*` / `PB_SLACK_*` / `PB_CHANNELS_ENABLED` secret overrides. Never commit tokens. |
+| Telegram bot (wake-up) | BotFather `telegram.bot_token` + optional allowlist pairing. Empty allowlist ⇒ any chat can trigger hooks. |
+| Telegram App API (analysis) | Separate rail: `api_id` / `api_hash` + one-time **account connect** (`telegram.app_session`). Used for `pboy telegram chats\|messages\|download\|export` over the user account’s dialogs — not a substitute for bot wake-up. Treat `app_session` like a password. |
 | Hooks | Only register `exec` you intend to run; harness runs as the daemon OS user with full local privileges of that account. Do not inline secrets in `hook.exec` command strings (spawn failures surface `hook.exec` and `argv` in execution `stderr`). |
 | CLI split-brain | CLI auto-connects to `http://127.0.0.1:8080` when the daemon is up; pass `--daemon-url http://127.0.0.1:<port>` if running on a custom port so CLI mutations hit the same DB. |
 | Health | `curl -s http://127.0.0.1:8080/healthz` (or `pboy status`) from the same host only. |
@@ -99,8 +100,12 @@ I/O.
 | Reply `file_path` | Local path only; must resolve under `data_dir/files` (`resolve_reply_file_path`). | No arbitrary local file read (LFI) via complete API. |
 | Reply `file_id` | Passed to Telegram as a Bot API file id string, not fetched as an HTTP URL by Pageboy. | N/A |
 
-Slack uses the official Socket Mode / Web API clients with tokens from env/store —
+Slack uses the official Socket Mode / Web API clients with tokens from the store —
 same idea: no event-payload URL open redirects.
+
+Telegram **App API** (Telethon / MTProto) connects to Telegram’s servers with
+developer keys from my.telegram.org; chat targets are ids/@usernames chosen by
+the local operator CLI, not arbitrary HTTP URLs from CloudEvents.
 
 **Not in scope for Alpha:** a runtime allowlist beyond the fixed Telegram base.
 The explicit guarantee is *no user-controlled URLs*, not “call any host on an
@@ -117,6 +122,9 @@ allowlist”.
 - **Default Telegram inbound is open until allowlisted** — an empty
   `telegram.allowlist` accepts messages from any chat/user. Always configure the
   allowlist (or pair via `/ui/settings`) before attaching sensitive hooks.
+- **Telegram App session = full user account** — after account connect, local
+  peers can list dialogs and read history the account can see. Keep the daemon
+  local-only; clear `telegram.app_session` in settings if the machine is shared.
 - **Harness = RCE as daemon user** by design once a hook is registered.
 - **Inbound/outbound file retention** under `data_dir/files/` is not pruned
   automatically (see issue #30).

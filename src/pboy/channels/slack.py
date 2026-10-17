@@ -60,18 +60,14 @@ class SlackChannel:
         return self._started
 
     async def _resolve_tokens(self) -> tuple[str, str]:
-        bot = self._settings.slack_bot_token.strip()
-        app = self._settings.slack_app_token.strip()
-        if not bot:
-            stored = await self._store.get_secret(SLACK_BOT_SECRET_KEY)
-            bot = stored.strip() if stored else ""
-        if not app:
-            stored = await self._store.get_secret(SLACK_APP_SECRET_KEY)
-            app = stored.strip() if stored else ""
+        stored_bot = await self._store.get_secret(SLACK_BOT_SECRET_KEY)
+        bot = stored_bot.strip() if stored_bot else ""
+        stored_app = await self._store.get_secret(SLACK_APP_SECRET_KEY)
+        app = stored_app.strip() if stored_app else ""
         if not bot or not app:
             raise RuntimeError(
-                "Slack tokens missing. Set PB_SLACK_BOT_TOKEN + PB_SLACK_APP_TOKEN "
-                f"or store secrets '{SLACK_BOT_SECRET_KEY}' and '{SLACK_APP_SECRET_KEY}'."
+                "Slack tokens missing. Configure them in /ui/settings or store secrets "
+                f"'{SLACK_BOT_SECRET_KEY}' and '{SLACK_APP_SECRET_KEY}'."
             )
         return bot, app
 

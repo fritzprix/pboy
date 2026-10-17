@@ -50,6 +50,9 @@ def run_daemon(
     except ValueError as exc:
         logger.error("{}", exc)
         raise SystemExit(1) from exc
+    from pboy.channels.env_contract import warn_removed_channel_env_vars
+
+    warn_removed_channel_env_vars()
     public_url = _public_daemon_url(actual_host, actual_port)
     app = create_app(db_path=db, enable_ui=ui)
     logger.info(

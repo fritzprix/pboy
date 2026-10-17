@@ -122,3 +122,14 @@ SYNC_TARGETS_SUPPORTED: Final[frozenset[str]] = frozenset({"telegram"})
 
 # ── Engine process_event ─────────────────────────────────────────────────────
 ENGINE_PROCESS_EVENT_ARITY: Final = 3  # (event, matched_hooks, executions)
+
+# Channel secrets / enablement live in the encrypted store only (not Settings).
+SETTINGS_FORBIDDEN_CHANNEL_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "telegram_bot_token",
+        "telegram_allowlist",
+        "slack_bot_token",
+        "slack_app_token",
+        "channels_enabled",
+    }
+)

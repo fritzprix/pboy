@@ -11,7 +11,8 @@ call their REST APIs from the harness. See [`docs/architecture-channels.md`](../
 | File | Role |
 |------|------|
 | `base.py` | `ChannelAdapter` / `EventEmitter` protocols |
-| `registry.py` | Enable/start/stop via `PB_CHANNELS_ENABLED` |
+| `registry.py` | Enable/start/stop via encrypted store |
+| `telegram_app.py` | MTProto App API (dialogs / export; user account) |
 | `fake.py` | In-process fake adapter (tests / demos) |
 | `telegram.py` | Bot API long-poll (`getUpdates`) |
 | `slack.py` | Socket Mode (Events API over WebSocket) |
@@ -32,12 +33,7 @@ pboy daemon --host 127.0.0.1 --port 8080
 
 While the daemon is running on `127.0.0.1:8080`, `pboy channel …` commands automatically connect to the daemon HTTP API (and can start/stop adapters live). For custom ports, pass `--daemon-url http://127.0.0.1:<port>`.
 
-**Env override** (wins over store when the variable is set, including empty):
-
-```bash
-export PB_CHANNELS_ENABLED=telegram
-export PB_TELEGRAM_BOT_TOKEN='123456:ABC...'
-```
+Channel secrets and enablement are **store-only** (`/ui/settings` or `pboy channel set-secret` / `enable`). Removed env overrides (`PB_TELEGRAM_*` tokens/allowlist, `PB_SLACK_*`, `PB_CHANNELS_ENABLED`) log a loud error at daemon startup if still set.
 
 ## Telegram setup (BotFather)
 
@@ -49,7 +45,7 @@ pboy channel set-secret telegram --value '<token from BotFather>'
 pboy channel enable telegram
 ```
 
-Or use env: `PB_TELEGRAM_BOT_TOKEN` (overrides store when set).
+Prefer `/ui/settings` (store-only secrets — no `PB_TELEGRAM_*` token overrides).
 
 Optional **allowlist** (comma-separated `chat.id` or sender `from.id` — unset/empty allows all; when set, unauthorized updates are dropped before file download or event creation).
 Note: allowing a group `chat.id` permits **all members** in that chat; list individual `from.id` values if you only want specific senders. Pass `--value ''` (or save an empty field in `/ui/settings`) to clear the stored allowlist:
@@ -58,8 +54,21 @@ Note: allowing a group `chat.id` permits **all members** in that chat; list indi
 pboy channel set-secret telegram --secret-name allowlist --value '123456789,-100987654321'
 # clear allowlist (revert to allow all):
 pboy channel set-secret telegram --secret-name allowlist --value ''
-# or env: export PB_TELEGRAM_ALLOWLIST='123456789,-100987654321'
 ```
+
+### App API rail (dialogs / export — not wake-up)
+
+Separate from the bot: save `api_id` / `api_hash` (my.telegram.org) and complete
+**account connect** in `/ui/settings`, then:
+
+```bash
+pboy telegram chats
+pboy telegram messages <chat> --limit 100 --offset-id 0
+pboy telegram download <chat> <message_id>
+pboy telegram export <chat> --out chat.jsonl --format jsonl
+```
+
+Bot token alone cannot list the user's full dialog set.
 
 3. Start the daemon (same DB as the CLI):
 
@@ -159,6 +168,6 @@ pboy channel set-secret slack --secret-name app_token --value 'xapp-...'
 pboy channel enable slack
 ```
 
-Or env: `PB_SLACK_BOT_TOKEN` + `PB_SLACK_APP_TOKEN`.
+Prefer `/ui/settings` for both Slack tokens (store-only).
 
 3. Start daemon, register a hook on `slack:message`, then message the app.

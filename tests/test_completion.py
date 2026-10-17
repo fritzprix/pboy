@@ -23,7 +23,7 @@ from pboy.store.sqlite import SQLiteStore
 @pytest_asyncio.fixture
 async def engine(tmp_path: Path) -> Engine:
     store = SQLiteStore(db_path=tmp_path / "complete.db", secret_key="complete-key")
-    eng = Engine(store=store, settings=Settings(telegram_bot_token="tok"))
+    eng = Engine(store=store, settings=Settings())
     await eng.start()
     yield eng
     await eng.stop()
@@ -130,8 +130,10 @@ async def test_complete_missing_event_raises(engine: Engine) -> None:
 
 @pytest.mark.asyncio
 async def test_telegram_outbound_send_message(engine: Engine) -> None:
+    from pboy.channels.telegram import TELEGRAM_SECRET_KEY
     from pboy.outbound.telegram import TelegramOutbound
 
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "tok")
     event = await _seed_telegram_event(engine)
     seen: list[str] = []
 
@@ -162,8 +164,10 @@ async def test_telegram_outbound_send_message(engine: Engine) -> None:
 
 @pytest.mark.asyncio
 async def test_telegram_outbound_error_redacts_token(engine: Engine) -> None:
+    from pboy.channels.telegram import TELEGRAM_SECRET_KEY
     from pboy.outbound.telegram import TelegramOutbound
 
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "tok")
     event = await _seed_telegram_event(engine)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -221,7 +225,7 @@ async def test_daemon_complete_and_get_detail(
     import pboy.core.config as config_mod
 
     monkeypatch.setattr(config_mod, "_settings", None)
-    settings = Settings(telegram_bot_token="tok")
+    settings = Settings()
     app_api = create_app(
         db_path=tmp_path / "d-complete.db",
         secret_key="d-complete-key",
@@ -345,7 +349,6 @@ async def test_telegram_outbound_uses_store_secret(engine: Engine) -> None:
     from pboy.channels.telegram import TELEGRAM_SECRET_KEY
     from pboy.outbound.telegram import TelegramOutbound
 
-    engine.settings.telegram_bot_token = ""
     await engine.store.put_secret(TELEGRAM_SECRET_KEY, "stored-out-token")
     event = await _seed_telegram_event(engine)
     seen: list[str] = []

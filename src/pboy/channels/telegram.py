@@ -182,22 +182,16 @@ class TelegramChannel:
         return merged_sorted
 
     async def _resolve_token(self) -> str:
-        env_token = self._settings.telegram_bot_token.strip()
-        if env_token:
-            return env_token
         stored = await self._store.get_secret(TELEGRAM_SECRET_KEY)
         if stored and stored.strip():
             return stored.strip()
         raise RuntimeError(
-            "Telegram bot token missing. Set PB_TELEGRAM_BOT_TOKEN or store secret "
-            f"'{TELEGRAM_SECRET_KEY}' (see README / channels docs)."
+            "Telegram bot token missing. Configure it in /ui/settings or store secret "
+            f"'{TELEGRAM_SECRET_KEY}'."
         )
 
     async def _resolve_allowlist(self) -> frozenset[str]:
-        """Resolve allowed chat/user IDs (non-empty env wins over store; empty = allow all)."""
-        env_raw = self._settings.telegram_allowlist.strip()
-        if env_raw:
-            return parse_allowlist(env_raw)
+        """Resolve allowed chat/user IDs from store (empty = allow all)."""
         stored = await self._store.get_secret(TELEGRAM_ALLOWLIST_SECRET_KEY)
         return parse_allowlist(stored)
 

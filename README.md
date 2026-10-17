@@ -1,17 +1,22 @@
 # Pageboy (`pboy` / `pb`)
 
-A Zero-Ops event orchestrator that accepts Telegram/Slack **wake-ups** locally and runs matching hooks (`exec`). (**Alpha · [PyPI](https://pypi.org/project/pboy/)**)
+[![PyPI](https://img.shields.io/pypi/v/pboy.svg)](https://pypi.org/project/pboy/)
+[![Python](https://img.shields.io/pypi/pyversions/pboy.svg)](https://pypi.org/project/pboy/)
+[![License](https://img.shields.io/pypi/l/pboy.svg)](https://github.com/fritzprix/pboy/blob/main/LICENSE)
+[![CI](https://github.com/fritzprix/pboy/actions/workflows/ci.yml/badge.svg)](https://github.com/fritzprix/pboy/actions/workflows/ci.yml)
 
-Jira/Confluence are not daemon webhooks — hook programs talk to them over REST. → [`docs/architecture-channels.md`](docs/architecture-channels.md)
+**Local-first Zero-Ops event orchestrator** for Python: Telegram Bot API long-poll and Slack Socket Mode **wake-ups** → topic-matched hooks (`exec`) on your machine. CloudEvents-shaped events, loopback-only daemon + `/ui`, no public webhook URL.
+
+Alpha on [PyPI](https://pypi.org/project/pboy/). Jira/Confluence are not daemon webhooks — hook programs call their REST APIs. → [`docs/architecture-channels.md`](docs/architecture-channels.md)
 
 ## Install · run
 
 ```bash
 uvx pboy ui
-# or: uvx pboy@0.1.0 ui
+# pin: uvx pboy@0.1.0 ui
 ```
 
-Browser: [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui)
+Open [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui).
 
 No login — API and UI are reachable only from this machine (loopback).
 

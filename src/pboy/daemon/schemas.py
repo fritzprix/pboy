@@ -151,7 +151,6 @@ class ChannelStatusItem(BaseModel):
 
 class ChannelListResponse(BaseModel):
     channels: list[ChannelStatusItem]
-    env_override: bool = False
 
 
 class ChannelMutationResponse(BaseModel):

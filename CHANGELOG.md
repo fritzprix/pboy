@@ -24,8 +24,16 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 - Remove `PB_AUTH_TOKEN`, UI login (`/ui/login`), and non-loopback bind.
   The daemon is **local-only**: loopback listen + `LocalOnlyGuard` (peer, Host,
   mutation CSRF). See [`docs/security-contract.md`](docs/security-contract.md).
+- Channel secrets / enablement are **store-only**: remove `PB_TELEGRAM_BOT_TOKEN`,
+  `PB_TELEGRAM_ALLOWLIST`, `PB_SLACK_*`, and `PB_CHANNELS_ENABLED` overrides.
+  Configure via `/ui/settings` or `pboy channel set-secret` / `enable` (#39).
 
 ### Added
+
+- Telegram **App API** rail (Telethon): `api_id` / `api_hash` + account connect in
+  `/ui/settings`; CLI `pboy telegram chats|messages|download|export` for user-account
+  dialogs/history (separate from bot-token wake-up) (#39)
+
 
 - Operator guide (`docs/operator.md`): deploy/runbook, Telegram happy-path checklist,
   troubleshooting (channel/hook/`PB_DAEMON_URL` split-brain/403); linked from README (#18)

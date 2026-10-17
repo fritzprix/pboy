@@ -60,15 +60,12 @@ class TelegramOutbound:
             await self._client.aclose()
 
     async def _resolve_token(self) -> str:
-        env_token = self._settings.telegram_bot_token.strip()
-        if env_token:
-            return env_token
         stored = await self._store.get_secret(TELEGRAM_SECRET_KEY)
         if stored and stored.strip():
             return stored.strip()
         raise RuntimeError(
             "Telegram bot token missing for outbound sync "
-            f"(PB_TELEGRAM_BOT_TOKEN or secret '{TELEGRAM_SECRET_KEY}')"
+            f"(configure in /ui/settings or store secret '{TELEGRAM_SECRET_KEY}')"
         )
 
     def _files_root(self) -> Path:
