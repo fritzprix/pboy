@@ -27,6 +27,9 @@ TELEGRAM_ALLOWLIST_SECRET_KEY = "telegram.allowlist"
 DEFAULT_API_BASE = "https://api.telegram.org"
 # Cap concurrent download+emit work so getUpdates stays responsive.
 _MAX_INFLIGHT_EMITS = 4
+# Cap scheduled emit tasks (including those waiting on the semaphore). When full,
+# the poll loop applies backpressure before advancing offset / fetching more.
+_MAX_PENDING_EMITS = 32
 PAIRING_TTL_SECONDS = 300.0
 
 
@@ -79,7 +82,15 @@ class TelegramChannel:
         poll_timeout: int = 25,
         initial_backoff: float = 1.0,
         max_backoff: float = 60.0,
+        max_inflight_emits: int = _MAX_INFLIGHT_EMITS,
+        max_pending_emits: int = _MAX_PENDING_EMITS,
     ) -> None:
+        if max_inflight_emits < 1:
+            raise ValueError("max_inflight_emits must be >= 1")
+        if max_pending_emits < 1:
+            raise ValueError("max_pending_emits must be >= 1")
+        if max_pending_emits < max_inflight_emits:
+            raise ValueError("max_pending_emits must be >= max_inflight_emits")
         self._emit = emit
         self._store = store
         self._settings = settings
@@ -87,13 +98,15 @@ class TelegramChannel:
         self._poll_timeout = poll_timeout
         self._initial_backoff = initial_backoff
         self._max_backoff = max_backoff
+        self._max_inflight_emits = max_inflight_emits
+        self._max_pending_emits = max_pending_emits
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(poll_timeout + 10.0))
         self._token: str | None = None
         self._offset = 0
         self._task: asyncio.Task[None] | None = None
         self._emit_tasks: set[asyncio.Task[None]] = set()
-        self._emit_sem = asyncio.Semaphore(_MAX_INFLIGHT_EMITS)
+        self._emit_sem = asyncio.Semaphore(max_inflight_emits)
         self._started = False
         self._last_error: str | None = None
         self._last_poll_ok_at: float | None = None
@@ -406,6 +419,23 @@ class TelegramChannel:
                 )
         return local_map
 
+    def _advance_offset(self, update_id: Any) -> None:
+        if isinstance(update_id, int) and update_id >= self._offset:
+            self._offset = update_id + 1
+
+    async def _wait_emit_capacity(self) -> None:
+        """Block until a pending-emit slot is free (backpressure on getUpdates)."""
+        while len(self._emit_tasks) >= self._max_pending_emits:
+            pending = tuple(self._emit_tasks)
+            if not pending:
+                return
+            logger.warning(
+                "channel.telegram emit_queue_full pending={} max={} — backpressure",
+                len(pending),
+                self._max_pending_emits,
+            )
+            await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
     def _schedule_process(
         self,
         payload: dict[str, Any],
@@ -458,11 +488,10 @@ class TelegramChannel:
     ) -> Any | None:
         """Process a single Telegram update dict (public for tests)."""
         update_id = update.get("update_id")
-        if isinstance(update_id, int) and update_id >= self._offset:
-            self._offset = update_id + 1
 
         # Only message / edited_message / channel_post style payloads normalize cleanly.
         if not any(k in update for k in ("message", "edited_message", "channel_post")):
+            self._advance_offset(update_id)
             logger.debug("channel.telegram skip update_id={} (no message payload)", update_id)
             return None
 
@@ -478,13 +507,21 @@ class TelegramChannel:
         uid = update_id if isinstance(update_id, int) else None
         msg_dict = raw_msg if isinstance(raw_msg, dict) else {}
         if not await self._is_allowed(msg_dict, uid):
+            self._advance_offset(update_id)
             return None
 
         payload: dict[str, Any] = {"message": raw_msg}
         if background:
-            # Download + emit off the poll loop (bounded by ``_emit_sem``).
+            # Hold offset until a pending slot exists. Offset is only sent to Telegram
+            # on the next getUpdates; within a batch this mainly helps if stop()
+            # cancels the poll mid-wait so the update is redelivered after restart.
+            # Already-queued emit tasks can still be cancelled after stop()'s timeout.
+            await self._wait_emit_capacity()
+            self._advance_offset(update_id)
+            # Download + emit off the poll loop (bounded by inflight + pending caps).
             self._schedule_process(payload, uid, dispatch=dispatch)
             return None
+        self._advance_offset(update_id)
         return await self._emit_with_downloads(payload, uid, dispatch=dispatch)
 
     async def _poll_loop(self) -> None:
@@ -492,20 +529,31 @@ class TelegramChannel:
         while self._started:
             try:
                 updates = await self._fetch_updates()
-                backoff = self._initial_backoff
                 self._last_poll_ok_at = time.monotonic()
                 self._last_error = None
+                batch_error = False
                 for update in updates:
                     try:
                         await self.handle_update(update, background=True)
                     except Exception:
+                        batch_error = True
                         logger.exception(
                             "channel.telegram handle_failed update_id={}",
                             update.get("update_id"),
                         )
-                # Real getUpdates long-polls; mocks return immediately — yield so stop() can run.
-                if not updates:
-                    await asyncio.sleep(0.05)
+                if batch_error:
+                    # Allowlist/store failures leave offset unmoved so the update
+                    # retries; back off to avoid a tight getUpdates loop.
+                    try:
+                        await asyncio.sleep(backoff)
+                    except asyncio.CancelledError:
+                        raise
+                    backoff = min(backoff * 2.0, self._max_backoff)
+                else:
+                    backoff = self._initial_backoff
+                    # Real getUpdates long-polls; mocks return immediately — yield so stop() can run.
+                    if not updates:
+                        await asyncio.sleep(0.05)
             except asyncio.CancelledError:
                 raise
             except TelegramAuthError as exc:

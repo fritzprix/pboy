@@ -85,7 +85,10 @@ Photo / document / audio / video messages populate `event.data.attachments`
 When `PB_TELEGRAM_DOWNLOAD_FILES` is true (default), the channel downloads via `getFile`
 into `~/.local/share/pboy/files/telegram/<update_id>/` (capped at ~20 MB) and sets
 `local_path`. Download failures still emit metadata, without `local_path`.
-Poll dispatch runs in the background, so long hooks do not stall `getUpdates`.
+Poll dispatch runs in the background (max 4 concurrent download+emit; max 32 pending
+tasks with backpressure on `getUpdates` when full), so long hooks do not stall polling
+forever under burst load. Staged files are not auto-deleted — see
+[`docs/operator.md`](../../../docs/operator.md) (`pboy files prune`).
 
 ### Replying (outbound sync)
 

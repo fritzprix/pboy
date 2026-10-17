@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -489,3 +490,123 @@ async def test_registry_restarts_telegram_on_bot_token_change(
     assert await engine.store.get_secret("telegram.allowlist") is None
 
     await reg.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_emit_queue_backpressure_bounds_pending_and_preserves_offset(
+    engine: Engine,
+    sample_telegram_payload: dict,
+) -> None:
+    """When pending emit tasks hit the cap, wait before advancing offset."""
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "bp-token")
+    settings = Settings()
+    release = asyncio.Event()
+    emit_count = 0
+
+    async def slow_emit(
+        payload: dict[str, Any], source: str, *, dispatch: bool = True
+    ) -> None:
+        nonlocal emit_count
+        emit_count += 1
+        await release.wait()
+        return None
+
+    channel = TelegramChannel(
+        slow_emit,
+        engine.store,
+        settings,
+        client=httpx.AsyncClient(),
+        max_inflight_emits=1,
+        max_pending_emits=2,
+    )
+
+    # Fill the pending queue (2 tasks); third must block before scheduling / offset advance.
+    await channel.handle_update(
+        _update_from_sample(sample_telegram_payload, 10), background=True
+    )
+    await channel.handle_update(
+        _update_from_sample(sample_telegram_payload, 11), background=True
+    )
+    assert channel._offset == 12
+    assert len(channel._emit_tasks) == 2
+
+    blocked = asyncio.create_task(
+        channel.handle_update(
+            _update_from_sample(sample_telegram_payload, 12), background=True
+        )
+    )
+    # Give the waiter a turn; offset must stay until capacity frees.
+    await asyncio.sleep(0.05)
+    assert not blocked.done()
+    assert channel._offset == 12
+    assert len(channel._emit_tasks) == 2
+
+    release.set()
+    await asyncio.wait_for(blocked, timeout=2.0)
+    assert channel._offset == 13
+    assert emit_count >= 2
+    assert len(channel._emit_tasks) <= 2
+
+    for _ in range(50):
+        if not channel._emit_tasks:
+            break
+        await asyncio.sleep(0.02)
+    assert not channel._emit_tasks
+    await channel._client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_handle_update_allowlist_store_error_leaves_offset_and_poll_backs_off(
+    engine: Engine,
+    sample_telegram_payload: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Store errors during allowlist resolve must not hot-loop getUpdates."""
+    await engine.store.put_secret(TELEGRAM_SECRET_KEY, "err-token")
+    settings = Settings()
+    state = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/getMe"):
+            return httpx.Response(200, json={"ok": True, "result": {"id": 1, "is_bot": True}})
+        if request.url.path.endswith("/deleteWebhook"):
+            return httpx.Response(200, json={"ok": True, "result": True})
+        if request.url.path.endswith("/getUpdates"):
+            state["n"] += 1
+            if state["n"] <= 3:
+                return httpx.Response(
+                    200,
+                    json={
+                        "ok": True,
+                        "result": [_update_from_sample(sample_telegram_payload, update_id=77)],
+                    },
+                )
+            return httpx.Response(200, json={"ok": True, "result": []})
+        return httpx.Response(404)
+
+    channel = TelegramChannel(
+        engine.process_event,
+        engine.store,
+        settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        api_base="https://api.telegram.org",
+        poll_timeout=1,
+        initial_backoff=0.05,
+        max_backoff=0.05,
+    )
+
+    async def boom_allowlist() -> frozenset[str]:
+        raise RuntimeError("store unavailable")
+
+    monkeypatch.setattr(channel, "_resolve_allowlist", boom_allowlist)
+
+    t0 = time.monotonic()
+    await channel.start()
+    try:
+        await asyncio.sleep(0.22)
+        # Same update retried with backoff between polls (not a tight spin).
+        assert state["n"] >= 2
+        assert channel._offset == 0
+        assert time.monotonic() - t0 >= 0.1
+    finally:
+        await channel.stop()

@@ -19,6 +19,17 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Added
+
+- Telegram poll emit queue backpressure (max pending tasks) so burst traffic cannot
+  unbounded-grow asyncio tasks (#30). Pending-slot wait holds local offset until the
+  next `getUpdates` (helps redelivery if the poll task is cancelled mid-wait); emit
+  tasks already queued may still be cancelled after `stop()`'s drain timeout.
+- `pboy files prune --older-than` (optional `--dry-run`) for staged
+  `data_dir/files/{telegram,outbound,telegram_app}` cleanup; default retention
+  remains forever / operator-managed (#30). Staged outbound copies use a fresh mtime
+  so prune cannot delete a reply just staged from an old source file.
+
 ## [0.2.0] — 2026-10-17
 
 Local-only Alpha train: security contract, Telegram bot + App API rails, store-only

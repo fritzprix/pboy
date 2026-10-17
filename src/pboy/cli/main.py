@@ -76,12 +76,20 @@ telegram_app = typer.Typer(
     ),
     no_args_is_help=True,
 )
+files_app = typer.Typer(
+    help=(
+        "Manage staged files under data_dir/files "
+        "(telegram inbound, outbound staging, telegram_app media)."
+    ),
+    no_args_is_help=True,
+)
 
 app.add_typer(hook_app, name="hook")
 app.add_typer(state_app, name="state")
 app.add_typer(event_app, name="event")
 app.add_typer(channel_app, name="channel")
 app.add_typer(telegram_app, name="telegram")
+app.add_typer(files_app, name="files")
 
 
 def version_callback(value: bool) -> None:
@@ -1019,6 +1027,49 @@ def telegram_export(
         typer.echo(json.dumps(body, indent=2, ensure_ascii=False))
 
     _run_with_store(_run)
+
+
+@files_app.command("prune")
+def files_prune(
+    older_than: Annotated[
+        str,
+        typer.Option(
+            "--older-than",
+            help="Delete files with mtime older than this age (e.g. 7d, 24h, 30m; bare number = days)",
+        ),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=(
+                "Report what would be removed without deleting "
+                "(includes empty dirs that would remain after counted file removals)"
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Delete old staged files under data_dir/files (telegram, outbound, telegram_app).
+
+    Default retention is forever — run this when disk grows. Does not talk to the daemon.
+    """
+    from pboy.core.config import get_settings
+    from pboy.core.files_retention import parse_older_than, prune_files_tree
+
+    try:
+        age = parse_older_than(older_than)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    files_root = get_settings().data_dir / "files"
+    result = prune_files_tree(files_root, older_than=age, dry_run=dry_run)
+    action = "would remove" if dry_run else "removed"
+    typer.echo(
+        f"{action} {result.removed_files} file(s) "
+        f"({result.removed_bytes} bytes), {result.removed_dirs} empty dir(s) "
+        f"under {files_root}"
+    )
 
 
 def main() -> None:

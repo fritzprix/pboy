@@ -126,7 +126,8 @@ allowlist”.
   peers can list dialogs and read history the account can see. Keep the daemon
   local-only; clear `telegram.app_session` in settings if the machine is shared.
 - **Harness = RCE as daemon user** by design once a hook is registered.
-- **Inbound/outbound file retention** under `data_dir/files/` is not pruned
-  automatically (see issue #30).
+- **Inbound/outbound file retention** under `data_dir/files/` is kept forever
+  by default; operators prune with `pboy files prune --older-than …`
+  (see [`operator.md`](operator.md), issue #30).
 - **Multi-tenant / public SaaS / LAN listen** are out of scope; do not stretch
   this process into those deployments.
