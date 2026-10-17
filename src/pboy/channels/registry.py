@@ -172,10 +172,9 @@ class ChannelRegistry:
         previous = await self._store.get_secret(secret_key)
         previous_clean = previous.strip() if previous else ""
         await self._store.put_secret(secret_key, cleaned)
-        # Changing App API developer keys invalidates the stored user session.
+        # Changing or clearing App API developer keys invalidates the stored user session.
         if (
             secret_key in {TELEGRAM_API_ID_SECRET_KEY, TELEGRAM_API_HASH_SECRET_KEY}
-            and cleaned
             and cleaned != previous_clean
         ):
             await self._store.put_secret(TELEGRAM_APP_SESSION_SECRET_KEY, "")

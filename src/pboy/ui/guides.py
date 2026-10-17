@@ -29,6 +29,13 @@ class ChannelGuide(TypedDict):
     fields: list[GuideField]
 
 
+class AppApiGuide(TypedDict):
+    title: str
+    blurb: str
+    links: list[GuideLink]
+    fields: list[GuideField]
+
+
 class InfoGuide(TypedDict):
     title: str
     blurb: str
@@ -87,28 +94,6 @@ CHANNEL_GUIDES: Final[list[ChannelGuide]] = [
                     "비운 채로 저장하면 해제(전체 허용) · 쉼표로 구분 "
                     "(주의: 그룹 chat.id 허용 시 그 방 전원 허용)"
                 ),
-                "optional": True,
-            },
-            {
-                "secret_name": "api_id",
-                "label": "App API ID (대화 분석용 · my.telegram.org)",
-                "placeholder": "12345678",
-                "tooltip": (
-                    "봇 대화(wake-up)와 별개입니다. 내 계정이 속한 대화방 목록·메시지·파일 "
-                    "내보내기를 쓸 때 필요합니다. https://my.telegram.org → API development tools."
-                ),
-                "help": "숫자만 · 봇 토큰과 다릅니다 · 분석/export용",
-                "optional": True,
-            },
-            {
-                "secret_name": "api_hash",
-                "label": "App API Hash (대화 분석용)",
-                "placeholder": "0123456789abcdef…",
-                "tooltip": (
-                    "my.telegram.org에서 api_id와 함께 발급됩니다. "
-                    "아래에서 계정 연결(1회)을 마치면 대화방 전체 list가 가능합니다."
-                ),
-                "help": "영문+숫자 · 비우면 저장 해제",
                 "optional": True,
             },
         ],
@@ -199,6 +184,45 @@ JIRA_INFO: Final[InfoGuide] = {
 }
 
 
+TELEGRAM_APP_GUIDE: Final[AppApiGuide] = {
+    "title": "Telegram 내 계정 연결 (대화 조회 · export)",
+    "blurb": (
+        "내 계정이 들어 있는 대화방 목록·메시지·파일을 pboy telegram … 명령으로 꺼내 씁니다. "
+        "봇 토큰(wake-up)과 별개이며, 훅을 실행하지는 않습니다."
+    ),
+    "links": [
+        {
+            "label": "my.telegram.org (API development tools)",
+            "url": "https://my.telegram.org",
+        },
+    ],
+    "fields": [
+        {
+            "secret_name": "api_id",
+            "label": "App API ID",
+            "placeholder": "12345678",
+            "tooltip": (
+                "my.telegram.org → API development tools의 api_id입니다. "
+                "숫자만이며, BotFather 봇 토큰과 다릅니다."
+            ),
+            "help": "숫자만 · 봇 토큰과 다름",
+            "optional": True,
+        },
+        {
+            "secret_name": "api_hash",
+            "label": "App API Hash",
+            "placeholder": "0123456789abcdef…",
+            "tooltip": (
+                "같은 화면에서 api_id와 함께 발급되는 hash입니다. "
+                "둘 다 저장해야 전화번호 인증으로 넘어갑니다."
+            ),
+            "help": "영문+숫자 · 비우면 저장 해제",
+            "optional": True,
+        },
+    ],
+}
+
+
 HARNESS_SECRET_FIELDS: Final[list[dict[str, Any]]] = [
     {
         "key": "jira.api_token",
@@ -227,4 +251,5 @@ __all__ = [
     "CHANNEL_GUIDES",
     "HARNESS_SECRET_FIELDS",
     "JIRA_INFO",
+    "TELEGRAM_APP_GUIDE",
 ]

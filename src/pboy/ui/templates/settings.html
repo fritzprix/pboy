@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Pageboy · 채널·비밀값{% endblock %}
 {% block subtitle %}각 서비스에서 받은 열쇠를 붙여넣고, 깨우기 채널을 켭니다. 저장한 값은 다시 보여 주지 않습니다.{% endblock %}
 {% block content %}
@@ -39,34 +40,7 @@
   </ul>
 
   {% for field in g.fields %}
-  <form
-    method="post"
-    action="/ui/settings/channels/{{ g.name }}/secret"
-    class="stack secret-form"
-  >
-    <input type="hidden" name="secret_name" value="{{ field.secret_name }}" />
-    <label class="field">
-      <span class="label-row">
-        {{ field.label }}
-        {% if row.secret_flags[field.secret_name] %}
-        <span class="badge">저장됨</span>
-        {% else %}
-        <span class="badge muted">아직 없음</span>
-        {% endif %}
-        <button type="button" class="tip" title="{{ field.tooltip }}" aria-label="{{ field.label }} 도움말">?</button>
-      </span>
-      <input
-        type="password"
-        name="value"
-        autocomplete="off"
-        {% if not field.optional %}required{% endif %}
-        placeholder="{{ field.placeholder }}"
-        title="{{ field.tooltip }}"
-      />
-      <span class="field-help">{{ field.help }}</span>
-    </label>
-    <button type="submit" class="btn primary">이 값 저장</button>
-  </form>
+  {{ m.secret_field(g.name, field, row.secret_flags) }}
   {% endfor %}
 
   <div class="actions">
@@ -121,58 +95,96 @@
   </form>
 
   <hr class="sep" />
-  <h3 class="subhead">Telegram 계정 연결 (대화 분석 · export용)</h3>
-  <p class="prose muted">
-    위에서 저장한 <strong>App API ID / Hash</strong>로, 내 계정이 속한 <em>모든</em> 대화방 목록·메시지·파일 내보내기를 씁니다.
-    봇 토큰과 별개입니다. 한 번 연결하면 session은 암호화 DB에 저장되며 화면에 다시 보이지 않습니다.
-    인증 코드 요청과 확인은 <strong>같은 데몬 프로세스</strong>에서 이어서 하세요 (재시작하면 1단계를 다시 해야 합니다).
-  </p>
-  {% if row.secret_flags.get('app_session') %}
-  <p class="flash ok" role="status">계정 연결됨 — <code>pboy telegram chats</code> 등으로 조회할 수 있습니다.</p>
-  <form method="post" action="/ui/settings/channels/telegram/app-disconnect" class="actions">
-    <button type="submit" class="btn">계정 연결 해제</button>
-  </form>
-  {% elif not row.secret_flags.get('api_id') or not row.secret_flags.get('api_hash') %}
-  <p class="flash warn">먼저 위 필드의 App API ID와 Hash를 저장하세요 (<a href="https://my.telegram.org" target="_blank" rel="noopener noreferrer">my.telegram.org</a>).</p>
-  {% endif %}
-  <form method="post" action="/ui/settings/channels/telegram/app-login-start" class="stack secret-form">
-    <label class="field">
-      <span class="label-row">1단계 · 전화번호</span>
-      <input
-        type="tel"
-        name="phone"
-        autocomplete="tel"
-        required
-        placeholder="+821012345678"
-        {% if not row.secret_flags.get('api_id') or not row.secret_flags.get('api_hash') %}disabled{% endif %}
-      />
-      <span class="field-help">국가코드 포함 (예: +82…)</span>
-    </label>
-    <button type="submit" class="btn" {% if not row.secret_flags.get('api_id') or not row.secret_flags.get('api_hash') %}disabled{% endif %}>
-      인증 코드 요청
-    </button>
-  </form>
-  <form method="post" action="/ui/settings/channels/telegram/app-login-verify" class="stack secret-form">
-    <label class="field">
-      <span class="label-row">2단계 · 텔레그램 앱에 도착한 코드</span>
-      <input
-        type="text"
-        name="code"
-        inputmode="numeric"
-        autocomplete="one-time-code"
-        required
-        placeholder="12345"
-        {% if not row.secret_flags.get('api_id') or not row.secret_flags.get('api_hash') %}disabled{% endif %}
-      />
-    </label>
-    <label class="field">
-      <span class="label-row">2FA 비밀번호 (해당 시)</span>
-      <input type="password" name="password" autocomplete="current-password" placeholder="없으면 비워 두세요" />
-    </label>
-    <button type="submit" class="btn primary" {% if not row.secret_flags.get('api_id') or not row.secret_flags.get('api_hash') %}disabled{% endif %}>
-      연결 완료
-    </button>
-  </form>
+  {% set ag = row.app_guide %}
+  {% set step = row.app_step %}
+  {% set order = ['credentials', 'phone', 'code', 'connected'] %}
+  {% set pos = order.index('code' if step == 'password' else step) %}
+  <div class="app-api-flow" id="telegram-app-api" data-app-step="{{ step }}">
+    <h3 class="subhead">{{ ag.title }}</h3>
+    <p class="prose muted">{{ ag.blurb }}</p>
+    <ol class="flow-steps" aria-label="계정 연결 진행 단계">
+      {% for label in ['1. App API 등록', '2. 전화번호', '3. 코드 확인', '연결됨'] %}
+      <li class="{% if loop.index0 == pos %}current{% elif loop.index0 < pos %}done{% endif %}"
+          {% if loop.index0 == pos %}aria-current="step"{% endif %}>{{ label }}</li>
+      {% endfor %}
+    </ol>
+
+    {# 1 · App API credentials — open form until both are saved, then a one-line summary #}
+    {% if step == 'credentials' %}
+    <h4 class="flow-step-title">1단계 · App API ID / Hash 저장</h4>
+    <p class="prose muted">
+      {% for link in ag.links %}<a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>{% endfor %}에서
+      발급받은 두 값을 저장하세요. 봇 토큰과 다릅니다.
+    </p>
+    {% for field in ag.fields %}
+    {{ m.secret_field('telegram', field, row.secret_flags) }}
+    {% endfor %}
+    {% else %}
+    <details class="flow-done">
+      <summary>✓ App API 등록됨 <span class="muted">· 변경</span></summary>
+      <p class="prose muted">값을 바꾸거나 비우면 계정 연결이 해제되고 처음부터 다시 진행합니다.</p>
+      {% for field in ag.fields %}
+      {{ m.secret_field('telegram', field, row.secret_flags) }}
+      {% endfor %}
+    </details>
+    {% endif %}
+
+    {# 2 · phone #}
+    {% if step == 'phone' %}
+    <h4 class="flow-step-title">2단계 · 전화번호로 인증 코드 요청</h4>
+    <form method="post" action="/ui/settings/channels/telegram/app-login-start" class="stack secret-form">
+      <label class="field">
+        <span class="label-row">전화번호</span>
+        <input type="tel" name="phone" autocomplete="tel" required placeholder="+821012345678" />
+        <span class="field-help">국가코드 포함 (예: +82…). 코드는 텔레그램 앱으로 옵니다.</span>
+      </label>
+      <button type="submit" class="btn primary">인증 코드 요청</button>
+    </form>
+    {% elif step in ['code', 'password'] %}
+    <div class="flow-done-row">
+      ✓ <code>{{ row.app_phone_masked }}</code>로 코드를 보냈습니다
+      <form method="post" action="/ui/settings/channels/telegram/app-login-cancel">
+        <button type="submit" class="btn link">번호 다시 입력</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {# 3 · code, then 2FA password only if Telegram asks for it #}
+    {% if step == 'code' %}
+    <h4 class="flow-step-title">3단계 · 텔레그램 앱에 도착한 코드</h4>
+    <p class="prose muted">
+      코드 요청과 확인은 같은 데몬 프로세스에서 이어서 하세요. 데몬을 재시작하면 전화번호 단계로 돌아갑니다.
+    </p>
+    <form method="post" action="/ui/settings/channels/telegram/app-login-verify" class="stack secret-form">
+      <label class="field">
+        <span class="label-row">인증 코드</span>
+        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required placeholder="12345" />
+      </label>
+      <button type="submit" class="btn primary">확인</button>
+    </form>
+    {% elif step == 'password' %}
+    <div class="flow-done-row">✓ 코드 확인됨</div>
+    <h4 class="flow-step-title">3단계 · 2단계 인증(2FA) 비밀번호</h4>
+    <p class="prose muted">이 계정은 2단계 인증이 켜져 있습니다. 텔레그램 클라우드 비밀번호를 입력하세요.</p>
+    <form method="post" action="/ui/settings/channels/telegram/app-login-password" class="stack secret-form">
+      <label class="field">
+        <span class="label-row">2FA 비밀번호</span>
+        <input type="password" name="password" autocomplete="current-password" required />
+      </label>
+      <button type="submit" class="btn primary">연결 완료</button>
+    </form>
+    {% endif %}
+
+    {# done #}
+    {% if step == 'connected' %}
+    <p class="flash ok" role="status">
+      계정 연결됨 — <code>pboy telegram chats</code> 등으로 조회할 수 있습니다.
+    </p>
+    <form method="post" action="/ui/settings/channels/telegram/app-disconnect" class="actions">
+      <button type="submit" class="btn">계정 연결 해제</button>
+    </form>
+    {% endif %}
+  </div>
   {% endif %}
 </section>
 {% endfor %}

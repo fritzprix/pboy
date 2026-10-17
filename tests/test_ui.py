@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from typer.testing import CliRunner
 
+from pboy.channels.telegram_app import TelegramAppService
 from pboy.cli.main import app
 from pboy.core.engine import Engine
 from pboy.daemon.app import create_app
@@ -249,6 +253,133 @@ async def test_ui_settings_guides_and_tooltips(tmp_path: Path) -> None:
         assert "훅이 띄운 프로그램" in body
         assert 'name="secret_name" value="bot_token"' in body
         assert 'name="secret_name" value="app_token"' in body
+        assert 'name="secret_name" value="api_id"' in body
+        assert 'name="secret_name" value="api_hash"' in body
+        assert 'id="telegram-app-api"' in body
+        assert 'data-app-step="credentials"' in body
+        assert 'action="/ui/settings/channels/telegram/app-login-start"' not in body
+        assert "my.telegram.org" in body
+
+
+class _SessionPasswordNeededError(Exception):
+    """Stand-in matched by class name like Telethon's ``SessionPasswordNeededError``."""
+
+
+_SessionPasswordNeededError.__name__ = "SessionPasswordNeededError"
+
+
+def _fake_telethon_client(*, needs_password: bool) -> Any:
+    client = MagicMock()
+    client.session.save.return_value = "temp-session"
+    client.send_code_request = AsyncMock(return_value=SimpleNamespace(phone_code_hash="h"))
+
+    async def sign_in(**kwargs: Any) -> None:
+        if "code" in kwargs and needs_password:
+            raise _SessionPasswordNeededError()
+
+    client.sign_in = AsyncMock(side_effect=sign_in)
+    client.get_me = AsyncMock(return_value=SimpleNamespace(id=7, username="alice"))
+    client.disconnect = AsyncMock()
+    return client
+
+
+@pytest.mark.asyncio
+async def test_ui_settings_telegram_app_api_sequential_steps(tmp_path: Path) -> None:
+    application = create_app(
+        db_path=tmp_path / "ui-app-flow.db",
+        secret_key="ui-app-flow-key",
+        enable_ui=True,
+    )
+    fake = _fake_telethon_client(needs_password=True)
+
+    async def factory(*_a: Any, **_k: Any) -> Any:
+        return fake
+
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        eng: Engine = application.state.engine
+        application.state.telegram_app = TelegramAppService(
+            store=eng.store, client_factory=factory
+        )
+
+        async def page() -> str:
+            return (await client.get("/ui/settings")).text
+
+        async def post(path: str, **data: str) -> None:
+            res = await client.post(path, data=data, follow_redirects=False)
+            assert res.status_code == 303
+
+        secret = "/ui/settings/channels/telegram/secret"
+        body = await page()
+        assert 'data-app-step="credentials"' in body
+        assert "app-login-start" not in body
+
+        await post(secret, secret_name="api_id", value="12345678")
+        assert 'data-app-step="credentials"' in await page()
+
+        await post(secret, secret_name="api_hash", value="abcdef0123456789")
+        body = await page()
+        assert 'data-app-step="phone"' in body
+        assert "✓ App API 등록됨" in body
+        assert "app-login-verify" not in body
+
+        await post("/ui/settings/channels/telegram/app-login-start", phone="+821012345678")
+        body = await page()
+        assert 'data-app-step="code"' in body
+        assert "+8210****5678" in body
+        assert 'action="/ui/settings/channels/telegram/app-login-start"' not in body
+        assert 'name="password"' not in body
+
+        await post("/ui/settings/channels/telegram/app-login-verify", code="12345")
+        body = await page()
+        assert 'data-app-step="password"' in body
+        assert 'action="/ui/settings/channels/telegram/app-login-password"' in body
+        assert "app-login-verify" not in body
+
+        await post("/ui/settings/channels/telegram/app-login-password", password="pw")
+        body = await page()
+        assert 'data-app-step="connected"' in body
+        assert "계정 연결됨" in body
+
+        # Clearing the App API hash drops the session: back to step 1, not "connected".
+        await post(secret, secret_name="api_hash", value="")
+        assert 'data-app-step="credentials"' in await page()
+        assert await eng.store.get_secret("telegram.app_session") == ""
+
+
+@pytest.mark.asyncio
+async def test_ui_settings_telegram_app_cancel_returns_to_phone(tmp_path: Path) -> None:
+    application = create_app(
+        db_path=tmp_path / "ui-app-cancel.db",
+        secret_key="ui-app-cancel-key",
+        enable_ui=True,
+    )
+    fake = _fake_telethon_client(needs_password=False)
+
+    async def factory(*_a: Any, **_k: Any) -> Any:
+        return fake
+
+    transport = ASGITransport(app=application)
+    async with (
+        application.router.lifespan_context(application),
+        AsyncClient(transport=transport, base_url="http://127.0.0.1") as client,
+    ):
+        eng: Engine = application.state.engine
+        await eng.store.put_secret("telegram.api_id", "1")
+        await eng.store.put_secret("telegram.api_hash", "h")
+        application.state.telegram_app = TelegramAppService(
+            store=eng.store, client_factory=factory
+        )
+        await client.post(
+            "/ui/settings/channels/telegram/app-login-start", data={"phone": "+821012345678"}
+        )
+        assert 'data-app-step="code"' in (await client.get("/ui/settings")).text
+
+        await client.post("/ui/settings/channels/telegram/app-login-cancel")
+        assert 'data-app-step="phone"' in (await client.get("/ui/settings")).text
 
 
 @pytest.mark.asyncio

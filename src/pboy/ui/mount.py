@@ -22,6 +22,7 @@ from pboy.ui.guides import (
     CHANNEL_GUIDES,
     HARNESS_SECRET_FIELDS,
     JIRA_INFO,
+    TELEGRAM_APP_GUIDE,
 )
 
 _UI_ROOT = Path(__file__).resolve().parent
@@ -30,10 +31,34 @@ _TEMPLATES = Jinja2Templates(directory=str(_UI_ROOT / "templates"))
 _HARNESS_KEYS = frozenset(str(f["key"]) for f in HARNESS_SECRET_FIELDS)
 
 
+_APP_CREDENTIAL_NAMES = frozenset({"api_id", "api_hash"})
+_APP_ANCHOR = "#telegram-app-api"
+
+
+def _app_connected_redirect(info: dict[str, Any]) -> RedirectResponse:
+    who = info.get("username") or info.get("user_id") or "ok"
+    return RedirectResponse(
+        f"/ui/settings?saved={quote(f'telegram.app_session (계정 연결 완료: {who})')}",
+        status_code=303,
+    )
+
+
+def _telegram_app_step(secret_flags: dict[str, bool], *, login_step: str) -> str:
+    """App API wizard step: credentials → phone → code (→ password) → connected."""
+    if not secret_flags.get("api_id") or not secret_flags.get("api_hash"):
+        return "credentials"
+    if secret_flags.get("app_session"):
+        return "connected"
+    if login_step in ("code", "password"):
+        return login_step
+    return "phone"
+
+
 async def _channel_rows(
     registry: ChannelRegistry,
     *,
     engine: Engine,
+    telegram_app: TelegramAppService | None = None,
 ) -> list[dict[str, Any]]:
     status_rows = await registry.list_status()
     by_name = {str(r["name"]): r for r in status_rows}
@@ -53,17 +78,29 @@ async def _channel_rows(
             pairing_active = bool(getattr(adapter, "pairing_active", False))
             session_val = await engine.store.get_secret(TELEGRAM_APP_SESSION_SECRET_KEY)
             secret_flags["app_session"] = bool(session_val and session_val.strip())
+            for field in TELEGRAM_APP_GUIDE["fields"]:
+                full_key = f"telegram.{field['secret_name']}"
+                stored_val = await engine.store.get_secret(full_key)
+                secret_flags[field["secret_name"]] = bool(
+                    stored_val and stored_val.strip()
+                )
 
-        rows.append(
-            {
-                "guide": guide,
-                "enabled": bool(st.get("enabled")),
-                "running": bool(st.get("running")),
-                "has_secret": bool(st.get("has_secret")),
-                "secret_flags": secret_flags,
-                "pairing_active": pairing_active,
-            }
-        )
+        row: dict[str, Any] = {
+            "guide": guide,
+            "enabled": bool(st.get("enabled")),
+            "running": bool(st.get("running")),
+            "has_secret": bool(st.get("has_secret")),
+            "secret_flags": secret_flags,
+            "pairing_active": pairing_active,
+        }
+        if name == "telegram":
+            login_step = telegram_app.login_step if telegram_app is not None else "idle"
+            row["app_guide"] = TELEGRAM_APP_GUIDE
+            row["app_step"] = _telegram_app_step(secret_flags, login_step=login_step)
+            row["app_phone_masked"] = (
+                telegram_app.pending_phone_masked if telegram_app is not None else None
+            )
+        rows.append(row)
     return rows
 
 
@@ -134,11 +171,16 @@ def mount_ui(app: FastAPI) -> None:
     ) -> HTMLResponse:
         eng: Engine = request.app.state.engine
         reg: ChannelRegistry = request.app.state.channel_registry
+        tg_app: TelegramAppService | None = getattr(
+            request.app.state, "telegram_app", None
+        )
         ctx: dict[str, Any] = {}
         ctx.update(
             {
                 "page": "settings",
-                "channels": await _channel_rows(reg, engine=eng),
+                "channels": await _channel_rows(
+                    reg, engine=eng, telegram_app=tg_app
+                ),
                 "jira_info": JIRA_INFO,
                 "harness_secrets": await _harness_secret_status(eng),
                 "flash_saved": saved,
@@ -165,6 +207,11 @@ def mount_ui(app: FastAPI) -> None:
                 f"/ui/settings?err={quote(str(exc))}",
                 status_code=303,
             )
+        service: TelegramAppService | None = getattr(
+            request.app.state, "telegram_app", None
+        )
+        if service is not None and name == "telegram" and secret_name in _APP_CREDENTIAL_NAMES:
+            service.cancel_login()
         return RedirectResponse(
             f"/ui/settings?saved={quote(f'{name}.{secret_name}')}",
             status_code=303,
@@ -247,10 +294,7 @@ def mount_ui(app: FastAPI) -> None:
                 f"/ui/settings?err={quote(str(exc))}",
                 status_code=303,
             )
-        return RedirectResponse(
-            f"/ui/settings?saved={quote('telegram-app-code-sent (텔레그램 앱으로 코드를 보냈습니다)')}",
-            status_code=303,
-        )
+        return RedirectResponse(f"/ui/settings{_APP_ANCHOR}", status_code=303)
 
     @app.post(
         "/ui/settings/channels/telegram/app-login-verify",
@@ -279,11 +323,46 @@ def mount_ui(app: FastAPI) -> None:
                 f"/ui/settings?err={quote(str(exc))}",
                 status_code=303,
             )
-        who = info.get("username") or info.get("user_id") or "ok"
-        return RedirectResponse(
-            f"/ui/settings?saved={quote(f'telegram.app_session (계정 연결 완료: {who})')}",
-            status_code=303,
+        if info.get("password_required"):
+            return RedirectResponse(f"/ui/settings{_APP_ANCHOR}", status_code=303)
+        return _app_connected_redirect(info)
+
+    @app.post(
+        "/ui/settings/channels/telegram/app-login-password",
+        include_in_schema=False,
+    )
+    async def ui_telegram_app_login_password(
+        request: Request,
+        password: str = Form(...),
+    ) -> RedirectResponse:
+        service: TelegramAppService | None = getattr(
+            request.app.state, "telegram_app", None
         )
+        if service is None:
+            return RedirectResponse(
+                f"/ui/settings?err={quote('Telegram App 서비스를 사용할 수 없습니다.')}",
+                status_code=303,
+            )
+        try:
+            info = await service.verify_login_password(password)
+        except (ValueError, RuntimeError) as exc:
+            return RedirectResponse(
+                f"/ui/settings?err={quote(str(exc))}",
+                status_code=303,
+            )
+        return _app_connected_redirect(info)
+
+    @app.post(
+        "/ui/settings/channels/telegram/app-login-cancel",
+        include_in_schema=False,
+    )
+    async def ui_telegram_app_login_cancel(request: Request) -> RedirectResponse:
+        service: TelegramAppService | None = getattr(
+            request.app.state, "telegram_app", None
+        )
+        if service is not None:
+            service.cancel_login()
+        return RedirectResponse(f"/ui/settings{_APP_ANCHOR}", status_code=303)
 
     @app.post(
         "/ui/settings/channels/telegram/app-disconnect",

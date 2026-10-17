@@ -209,6 +209,77 @@ th {
   color: var(--accent);
 }
 
+hr.sep {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1.25rem 0;
+}
+
+.flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  list-style: none;
+  margin: 0.65rem 0 0.85rem;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.flow-steps li {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.flow-steps li.current {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.flow-steps li.done:not(.current) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.flow-step-title {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.flow-done,
+.flow-done-row {
+  margin: 0.6rem 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.flow-done-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.flow-done summary {
+  cursor: pointer;
+}
+
+.flow-done[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.btn.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  font-size: inherit;
+}
+
 .agent-brief-actions {
   align-items: center;
   flex-wrap: wrap;
