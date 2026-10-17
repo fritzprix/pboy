@@ -19,8 +19,18 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-17
+
+Dashboard, settings UX, and Telegram file retention/queue hardening on the
+local-only Alpha train.
+
 ### Added
 
+- Event detail page (`/ui/events/{id}`) with payload and execution stdout/stderr;
+  overview tables use short IDs, relative times, and status badges (#47).
+- Copyable agent brief on the dashboard overview (#42).
+- Step-by-step Telegram bot setup and App API account-connect flows in
+  `/ui/settings` (#45, #44).
 - Telegram poll emit queue backpressure (max pending tasks) so burst traffic cannot
   unbounded-grow asyncio tasks (#30). Pending-slot wait holds local offset until the
   next `getUpdates` (helps redelivery if the poll task is cancelled mid-wait); emit
@@ -29,6 +39,10 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   `data_dir/files/{telegram,outbound,telegram_app}` cleanup; default retention
   remains forever / operator-managed (#30). Staged outbound copies use a fresh mtime
   so prune cannot delete a reply just staged from an old source file.
+
+### Changed
+
+- README restructured around the event → hook → reply flow (#41).
 
 ## [0.2.0] — 2026-10-17
 
@@ -88,6 +102,7 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/fritzprix/pboy/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fritzprix/pboy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fritzprix/pboy/releases/tag/v0.1.0
