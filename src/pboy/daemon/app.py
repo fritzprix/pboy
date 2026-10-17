@@ -175,6 +175,8 @@ def create_app(
         except KeyError as exc:
             detail = exc.args[0] if exc.args else f"Event '{event_id}' not found"
             raise HTTPException(status_code=404, detail=detail) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         return EventCompleteResponse(
             event_id=event_id,

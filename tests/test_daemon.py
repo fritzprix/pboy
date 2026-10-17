@@ -293,7 +293,7 @@ async def test_openapi_schema_documents_sync_and_inject_payload(
     assert sync_prop["type"] == "array"
     assert sync_prop["items"] == {"type": "string"}
     assert "description" in sync_prop
-    assert sync_prop["examples"] == [["telegram"]]
+    assert sync_prop["examples"] == [["telegram"], ["slack"]]
 
     inject_props = schemas["EventInjectRequest"]["properties"]
     payload_prop = inject_props["payload"]

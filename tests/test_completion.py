@@ -527,3 +527,86 @@ def test_cli_event_complete_roundtrip(
     assert get_res.exit_code == 0, get_res.output
     assert "CLI done" in get_res.output
     assert "completion" in get_res.output
+
+
+async def _seed_slack_event(engine: Engine) -> CloudEvent:
+    event = CloudEvent(
+        source="slack",
+        type="com.slack.message.received",
+        data={
+            "entity_key": "slack_msg_12345",
+            "channel_id": "C01234567",
+            "summary": "Deployment failed",
+            "extra": {"ts": "1696800000.000100"},
+        },
+    )
+    await engine.store.create_event(event)
+    return event
+
+
+@pytest.mark.asyncio
+async def test_slack_outbound_post_message(engine: Engine) -> None:
+    from pboy.channels.slack import SLACK_BOT_SECRET_KEY
+    from pboy.outbound.slack import SlackOutbound
+
+    await engine.store.put_secret(SLACK_BOT_SECRET_KEY, "xoxb-test")
+    event = await _seed_slack_event(engine)
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/chat.postMessage"):
+            import json
+
+            bodies.append(json.loads(request.read().decode()))
+            assert request.headers.get("Authorization") == "Bearer xoxb-test"
+            return httpx.Response(
+                200,
+                json={"ok": True, "ts": "1696800001.000200", "channel": "C01234567"},
+            )
+        return httpx.Response(404)
+
+    outbound = SlackOutbound(
+        engine.store,
+        engine.settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        api_base="https://slack.com/api",
+    )
+    try:
+        result = await outbound.sync_completion(event, "Fixed on Slack")
+    finally:
+        await outbound.aclose()
+    assert result.ok is True
+    assert result.message_id == "1696800001.000200"
+    assert bodies and bodies[0]["text"] == "Fixed on Slack"
+    assert bodies[0]["channel"] == "C01234567"
+    assert bodies[0]["thread_ts"] == "1696800000.000100"
+
+
+@pytest.mark.asyncio
+async def test_complete_event_runs_slack_sync(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pboy.models.completion import SyncResult
+    from pboy.outbound import slack as slack_mod
+
+    event = await _seed_slack_event(engine)
+    calls: list[str] = []
+
+    async def _fake_sync(
+        self: Any, evt: CloudEvent, summary: str, *, reply_file: Any = None
+    ) -> SyncResult:
+        del self, evt, reply_file
+        calls.append(summary)
+        return SyncResult(target="slack", ok=True, detail="sent", message_id="1.2")
+
+    monkeypatch.setattr(slack_mod.SlackOutbound, "sync_completion", _fake_sync)
+
+    completion, already = await engine.complete_event(
+        event.id, summary="Slack ok", sync=["slack"]
+    )
+    assert already is False
+    assert calls == ["Slack ok"]
+    assert completion.sync_results[0].target == "slack"
+    assert completion.sync_results[0].ok is True
+

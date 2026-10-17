@@ -625,7 +625,14 @@ def event_complete(
     if file_path and file_id:
         typer.echo("Use only one of --file-path or --file-id.", err=True)
         raise typer.Exit(code=1)
-    if (file_path or file_id) and "telegram" not in targets:
+    wants_file = bool(file_path or file_id)
+    if wants_file and "slack" in targets:
+        typer.echo(
+            "--file-* is Telegram-only; remove --sync slack (or the file options).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if wants_file and "telegram" not in targets:
         typer.echo(
             "Warning: --file-* set without --sync telegram; file will not be sent.",
             err=True,

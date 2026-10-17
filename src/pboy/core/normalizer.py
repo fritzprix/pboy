@@ -134,17 +134,25 @@ class EventNormalizer:
         event = _as_dict(raw_event) if isinstance(raw_event, dict) else safe_payload
         event_type = TOPIC_TO_TYPE.get("slack:message", "com.slack.message.received")
 
+        # Prefer client_msg_id for identity; keep message ts in extra for outbound
+        # thread fallback (thread_id stays "already in a thread" only).
         client_msg_id = event.get("client_msg_id") or event.get("ts")
+        message_ts = event.get("ts")
+        thread_ts = event.get("thread_ts")
         user_id = event.get("user")
         text = _as_str(event.get("text"))
+        extra: dict[str, Any] = {}
+        if message_ts is not None and str(message_ts).strip():
+            extra["ts"] = str(message_ts).strip()
 
         data = EventData(
             entity_key=str(client_msg_id) if client_msg_id is not None else None,
             channel_id=_as_str(event.get("channel")),
-            thread_id=_as_str(event.get("thread_ts")),
+            thread_id=_as_str(thread_ts) if thread_ts is not None else None,
             actor=EventActor(id=str(user_id) if user_id is not None else None),
             summary=text,
             description=text,
+            extra=extra,
         )
 
         return CloudEvent(

@@ -291,3 +291,42 @@ def test_cli_dunder_main() -> None:
     )
     assert result.returncode == 0
     assert pboy.__version__ in result.stdout
+
+
+def test_cli_complete_rejects_file_with_slack_sync(
+    cli_runner: CliRunner, cli_db: Path, tmp_path: Path
+) -> None:
+    import json
+
+    inject = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "inject",
+            "--source",
+            "slack",
+            "--payload",
+            '{"event":{"channel":"C1","user":"U1","text":"hi","ts":"1.2"}}',
+            "--no-dispatch",
+        ],
+    )
+    assert inject.exit_code == 0, inject.output
+    event_id = json.loads(inject.output)["event_id"]
+    blob = tmp_path / "x.bin"
+    blob.write_bytes(b"x")
+    res = cli_runner.invoke(
+        app,
+        [
+            "event",
+            "complete",
+            event_id,
+            "--summary",
+            "file",
+            "--sync",
+            "slack",
+            "--file-path",
+            str(blob),
+        ],
+    )
+    assert res.exit_code == 1
+    assert "Telegram-only" in res.output or "file" in res.output.lower()

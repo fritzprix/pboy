@@ -25,6 +25,12 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   French, and Spanish, with a header language picker (`pboy_lang` cookie, falling
   back to `Accept-Language`, then English). Flash messages, Telegram login/pairing
   errors, and the pairing-code bot message are localized too.
+- Slack outbound sync (`--sync slack` / `chat.postMessage` thread reply) so Slack
+  is receive+reply like Telegram. Reply files stay Telegram-only (rejected up front
+  for Slack; the HTTP API answers 422). Slack CloudEvents now include
+  `data.extra.ts` (message timestamp) for outbound thread anchoring;
+  `data.thread_id` still means “already inside a thread” only. Events stored before
+  this change have no `extra.ts`, so their replies post to the channel, not a thread.
 
 ### Changed
 

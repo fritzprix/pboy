@@ -118,7 +118,7 @@ COMPLETION_STATE_KEY: Final = "completion"
 COMPLETION_REQUIRED_FIELDS: Final[frozenset[str]] = frozenset(
     {"status", "summary", "completed_at", "sync", "sync_results"}
 )
-SYNC_TARGETS_SUPPORTED: Final[frozenset[str]] = frozenset({"telegram"})
+SYNC_TARGETS_SUPPORTED: Final[frozenset[str]] = frozenset({"telegram", "slack"})
 
 # ── Engine process_event ─────────────────────────────────────────────────────
 ENGINE_PROCESS_EVENT_ARITY: Final = 3  # (event, matched_hooks, executions)
