@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -18,6 +19,7 @@ from pboy.channels.telegram_app import (
 )
 from pboy.core.engine import Engine
 from pboy.ui.agent_brief import render_agent_brief
+from pboy.ui.formatting import duration, short_id, when
 from pboy.ui.guides import (
     CHANNEL_GUIDES,
     HARNESS_SECRET_FIELDS,
@@ -27,6 +29,9 @@ from pboy.ui.guides import (
 
 _UI_ROOT = Path(__file__).resolve().parent
 _TEMPLATES = Jinja2Templates(directory=str(_UI_ROOT / "templates"))
+_TEMPLATES.env.filters["when"] = when
+_TEMPLATES.env.filters["short_id"] = short_id
+_TEMPLATES.env.globals["duration"] = duration
 
 _HARNESS_KEYS = frozenset(str(f["key"]) for f in HARNESS_SECRET_FIELDS)
 
@@ -193,6 +198,37 @@ def mount_ui(app: FastAPI) -> None:
             }
         )
         return _TEMPLATES.TemplateResponse(request, "dashboard.html", ctx)
+
+    @app.get(
+        "/ui/events/{event_id}",
+        response_class=HTMLResponse,
+        include_in_schema=False,
+    )
+    async def ui_event_detail(event_id: str, request: Request) -> HTMLResponse:
+        """Event payload plus its executions with stdout/stderr.
+
+        Same data as ``GET /v1/events/{id}`` / ``pboy event get --verbose``; the
+        daemon only answers loopback callers, so output is shown to the local operator.
+        """
+        eng: Engine = request.app.state.engine
+        detail = await eng.event_detail(event_id)
+        if detail is None:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "event.html",
+                {"page": "overview", "event": None, "event_id": event_id},
+                status_code=404,
+            )
+        return _TEMPLATES.TemplateResponse(
+            request,
+            "event.html",
+            {
+                "page": "overview",
+                "event": detail,
+                "executions": detail["executions"],
+                "data_json": json.dumps(detail.get("data"), indent=2, ensure_ascii=False),
+            },
+        )
 
     @app.get(
         "/ui/agent-brief.txt",

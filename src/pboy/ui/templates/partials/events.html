@@ -1,24 +1,26 @@
 {% if events %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr>
       <th scope="col">ID</th>
       <th scope="col">Source</th>
-      <th scope="col">Type</th>
+      <th scope="col" class="col-opt">Type</th>
       <th scope="col">Time</th>
     </tr>
   </thead>
   <tbody>
     {% for e in events %}
     <tr>
-      <td class="mono">{{ e.id }}</td>
+      <td class="mono"><a href="/ui/events/{{ e.id | urlencode }}" title="{{ e.id }}">{{ e.id | short_id }}</a></td>
       <td>{{ e.source }}</td>
-      <td class="mono truncate" title="{{ e.type }}">{{ e.type }}</td>
-      <td class="mono">{{ e.time }}</td>
+      <td class="col-opt mono truncate" title="{{ e.type }}">{{ e.type }}</td>
+      <td class="time">{{ e.time | when }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="empty">No events yet.</p>
 {% endif %}

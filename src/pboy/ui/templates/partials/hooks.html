@@ -1,4 +1,6 @@
+{% import "_macros.html" as m %}
 {% if hooks %}
+<div class="table-wrap">
 <table>
   <thead>
     <tr>
@@ -6,8 +8,8 @@
       <th scope="col">Topic</th>
       <th scope="col">Filter</th>
       <th scope="col">Exec</th>
-      <th scope="col">Concurrency</th>
-      <th scope="col">Timeout</th>
+      <th scope="col" class="col-opt">Concurrency</th>
+      <th scope="col" class="col-opt">Timeout</th>
       <th scope="col">Status</th>
     </tr>
   </thead>
@@ -18,13 +20,14 @@
       <td class="mono">{{ h.topic }}</td>
       <td class="mono truncate" title="{{ h.filter or '' }}">{{ h.filter or "—" }}</td>
       <td class="mono truncate" title="{{ h.exec }}">{{ h.exec }}</td>
-      <td>{{ h.concurrency }}</td>
-      <td>{{ h.timeout }}s</td>
-      <td>{{ h.status }}</td>
+      <td class="col-opt num">{{ h.concurrency }}</td>
+      <td class="col-opt num">{{ h.timeout }}s</td>
+      <td>{{ m.status(h.status) }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="empty">No hooks registered.</p>
 {% endif %}
