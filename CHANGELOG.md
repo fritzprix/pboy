@@ -19,6 +19,12 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-10-18
+
+### Changed
+
+- Refined Korean message catalog (`src/pboy/i18n/locales/ko.json`) to eliminate literal translations (e.g. "열쇠" → "키", "작업면" → "연동 인터페이스") and overly casual UI wording (e.g. "한눈에" → "개요", "한 줄 요약:" → "요약:", "아직 없음" → "설정되지 않음", "토큰은 이렇게 받습니다" → "토큰 발급 방법") in favor of standard engineering dashboard terminology.
+
 ## [0.3.2] — 2026-10-18
 
 ### Added
@@ -151,7 +157,8 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/fritzprix/pboy/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/fritzprix/pboy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/fritzprix/pboy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/fritzprix/pboy/compare/v0.2.0...v0.3.0
