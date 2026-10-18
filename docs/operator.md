@@ -69,9 +69,10 @@ Full steps: [`src/pboy/channels/README.md`](../src/pboy/channels/README.md).
 
 | Command | What it does |
 |---------|----------------|
-| `uvx pboy ui` | Daemon + dashboard at `/ui` (recommended) |
-| `uvx pboy daemon --ui` | Same, explicit flags |
+| `uvx pboy ui` | Daemon + dashboard at `/ui` (recommended). If already running, print URL and exit |
+| `uvx pboy daemon --ui` | Same as first-time `ui`, explicit flags (foreground) |
 | `uvx pboy daemon` | API only (`/healthz`, `/v1/*`) — no UI |
+| `uvx pboy mcp` | MCP stdio; ensures a daemon is up (spawns background `--ui` if needed, does not stop it) |
 
 Defaults: `--host 127.0.0.1` `--port 8080`. Non-loopback bind is **refused**.
 
@@ -108,6 +109,22 @@ uvx pboy --daemon-url http://127.0.0.1:9000 status
 ```
 
 If the daemon runs on a custom port or isolated DB (`--db`) and you run the CLI **without** `--daemon-url`, the CLI opens the default local SQLite DB instead of talking to that daemon (**split-brain**).
+
+### MCP (agents)
+
+```bash
+uvx pboy mcp
+uvx pboy mcp --daemon-url http://127.0.0.1:9000
+```
+
+Curated tools: events (`list_events`, `get_event`), `reply_event`, hooks
+(`list_hooks`, `register_hook`, `delete_hook`), `status`, and optional Telegram
+App API reads (`telegram_list_chats`, `telegram_list_messages`). Event inject and
+secret writes are **not** exposed.
+
+**Daemon lifecycle:** `pboy mcp` and `pboy ui` share a singleton ensure — probe
+`/healthz`, spawn at most one loopback `daemon --ui` if missing, never kill it
+when the client exits. Spawn logs append to `data_dir/daemon.log`.
 
 ### Environment variables (PB_*, advanced)
 

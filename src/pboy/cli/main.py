@@ -190,10 +190,57 @@ def ui_cmd(
     port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = 8080,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
-    """Launch the daemon with the embedded web dashboard (``/ui`` and ``/ui/settings``)."""
+    """Launch the daemon with the embedded web dashboard (``/ui`` and ``/ui/settings``).
+
+    If a daemon is already listening on this host/port, print its URL and exit
+    (do not start a second process). Otherwise this process becomes the daemon.
+    """
+    from pboy.daemon.ensure import daemon_base_url, probe_daemon
     from pboy.daemon.server import run_daemon
 
+    url = daemon_base_url(host, port)
+    if probe_daemon(url):
+        typer.echo(f"Daemon already running at {url}/ui")
+        raise typer.Exit(code=0)
     run_daemon(host=host, port=port, db=db, ui=True)
+
+
+@app.command("mcp")
+def mcp_cmd(
+    daemon_url: DaemonUrlOption = None,
+) -> None:
+    """Start the Pageboy MCP server on stdio (for Cursor / MCP hosts).
+
+    Ensures a local daemon is running (spawns ``pboy daemon --ui`` in the
+    background if needed; does not stop it on exit). Tools: list_events,
+    get_event, reply_event, list_hooks, register_hook, delete_hook, status,
+    telegram_list_chats, telegram_list_messages. Event inject and secret writes
+    are not exposed.
+    """
+    from pboy.core.config import get_settings
+    from pboy.daemon.ensure import EnsureDaemonError, ensure_daemon_url
+    from pboy.mcp.server import run_mcp_stdio
+
+    explicit = daemon_url.strip() if daemon_url and daemon_url.strip() else None
+    settings = get_settings()
+    db = str(settings.db_path) if settings.database_url else None
+    try:
+        # Prefer an explicit URL; otherwise ensure the default (or already-probed) daemon.
+        ensured = ensure_daemon_url(
+            explicit or _active_daemon_url(None),
+            db=db,
+            ui=True,
+        )
+    except EnsureDaemonError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except ValueError as exc:
+        # Non-loopback bind refused.
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if ensured.started:
+        typer.echo(f"Started Pageboy daemon at {ensured.url} (left running).", err=True)
+    run_mcp_stdio(daemon_url=ensured.url)
 
 
 @app.command("status")
