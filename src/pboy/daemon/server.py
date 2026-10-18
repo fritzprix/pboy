@@ -21,8 +21,7 @@ def assert_loopback_bind(host: str) -> None:
     if is_loopback_bind(host):
         return
     raise ValueError(
-        f"Pageboy is a local-only app and cannot bind to {host!r}. "
-        "Use --host 127.0.0.1 (default)."
+        f"Pageboy is a local-only app and cannot bind to {host!r}. Use --host 127.0.0.1 (default)."
     )
 
 
@@ -54,11 +53,12 @@ def run_daemon(
 
     warn_removed_channel_env_vars()
     public_url = _public_daemon_url(actual_host, actual_port)
-    app = create_app(db_path=db, enable_ui=ui)
+    ui_url = f"{public_url}/ui"
+    app = create_app(db_path=db, enable_ui=ui, public_url=public_url)
     logger.info(
         "Starting pboy daemon on {}",
         public_url,
     )
     if ui:
-        logger.info("Dashboard: {}/ui", public_url)
+        logger.info("UI URL: {}", ui_url)
     uvicorn.run(app, host=actual_host, port=actual_port, log_level=settings.log_level.lower())
