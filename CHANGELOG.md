@@ -19,6 +19,12 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-10-18
+
+### Added
+
+- When running `pboy ui` or `pboy daemon --ui`, the UI access URL (`http://<host>:<port>/ui`) is logged upon daemon readiness, and root path (`/`) requests are redirected to `/ui` (HTTP 307) when UI mode is enabled.
+
 ### Fixed
 
 - The settings UI shows a rejected Telegram bot token and channel-registry errors
@@ -145,7 +151,8 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/fritzprix/pboy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/fritzprix/pboy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/fritzprix/pboy/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fritzprix/pboy/compare/v0.1.0...v0.2.0
