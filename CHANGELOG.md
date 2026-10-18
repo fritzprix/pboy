@@ -19,6 +19,11 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-18
+
+MCP stdio server for AI agent hosts, plus singleton local daemon auto-start
+shared by `pboy mcp` and `pboy ui`.
+
 ### Added
 
 - MCP stdio server (`pboy mcp`) for agents: `list_events`, `get_event`,
@@ -189,7 +194,8 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/fritzprix/pboy/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/fritzprix/pboy/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/fritzprix/pboy/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/fritzprix/pboy/compare/v0.3.1...v0.3.2
