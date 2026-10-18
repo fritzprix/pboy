@@ -19,6 +19,22 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Added
+
+- `pboy hook template --lang python|bash` prints a CloudEvent stdin / `PB_SOURCE`
+  handler scaffold (optional `--topic` comment).
+- `pboy hook register` success output now includes the stdin/env contract, topic →
+  `PB_SOURCE` / CloudEvent `type`, normalized `.data` keys, and a template tip.
+- Agent brief: new **Writing a hook script** section (topic↔type table, normalized
+  `data` keys, minimal Python pattern, wildcard/`event inject --no-dispatch` notes).
+
+### Changed
+
+- `pboy hook` / `--exec` help text clarify normalized CloudEvent stdin (not
+  platform-raw JSON) and point at `pboy hook template`.
+- Harness README reference script uses `event reply` / `event complete` instead of
+  the obsolete multi-target `--sync` example.
+
 ## [0.3.3] — 2026-10-18
 
 ### Changed

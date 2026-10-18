@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 import pboy
 from pboy.cli.daemon_client import DaemonClient, resolve_daemon_url
+from pboy.harness.hook_contract import format_register_contract_hint, render_hook_template
 from pboy.models.hook import HookCreate
 from pboy.store.sqlite import SQLiteStore
 
@@ -45,11 +46,15 @@ app = typer.Typer(
 
 hook_app = typer.Typer(
     help=(
-        "Manage event hooks (register, list, delete).\n\n"
+        "Manage event hooks (register, list, delete, template).\n\n"
         "Supported topics: telegram:message, slack:message, jira:issue.created, "
         "jira:issue.updated, confluence:page.updated, or wildcards (e.g. telegram:*, *).\n"
+        "Matching uses topic / CloudEvent type — not PB_SOURCE alone.\n"
+        "Hook exec receives normalized CloudEvent JSON on stdin plus "
+        "PB_EVENT_ID, PB_SOURCE, PB_HOOK_NAME (prefer .data.summary / .data.channel_id).\n"
         "Supported filters: .path.to.field == \"value\" or != (invalid filters fail-closed).\n"
-        "Telegram bot reply from a hook: `pboy event reply --summary '…'` "
+        "Scaffold: `pboy hook template --lang python`. "
+        "Telegram/Slack reply from a hook: `pboy event reply --summary '…'` "
         "(uses $PB_EVENT_ID; not `pboy telegram`)."
     ),
     no_args_is_help=True,
@@ -256,8 +261,10 @@ def hook_register(
         typer.Option(
             "--exec",
             help=(
-                "Command to spawn (receives CloudEvent JSON on stdin and "
-                "PB_EVENT_ID, PB_SOURCE, PB_HOOK_NAME in env)"
+                "Command to spawn: normalized CloudEvent JSON on stdin; "
+                "PB_EVENT_ID, PB_SOURCE, PB_HOOK_NAME in env; "
+                "read .data.summary / .data.channel_id (not platform-raw JSON); "
+                "scaffold with `pboy hook template`"
             ),
         ),
     ],
@@ -296,14 +303,40 @@ def hook_register(
             hook = client.create_hook(hook_data)
         except httpx.HTTPError as exc:
             _daemon_http_error(exc)
-        typer.echo(f"Hook '{hook.name}' registered for topic '{hook.topic}'.")
+        typer.echo(format_register_contract_hint(name=hook.name, topic=hook.topic))
         return
 
     async def _run(store: SQLiteStore) -> None:
         hook = await store.create_hook(hook_data)
-        typer.echo(f"Hook '{hook.name}' registered for topic '{hook.topic}'.")
+        typer.echo(format_register_contract_hint(name=hook.name, topic=hook.topic))
 
     _run_with_store(_run)
+
+
+@hook_app.command("template")
+def hook_template(
+    lang: Annotated[
+        str,
+        typer.Option(
+            "--lang",
+            "-l",
+            help="Scaffold language: python or bash",
+        ),
+    ] = "python",
+    topic: Annotated[
+        str | None,
+        typer.Option(
+            "--topic",
+            help="Optional topic hint embedded as a comment (e.g. telegram:message)",
+        ),
+    ] = None,
+) -> None:
+    """Print a hook script scaffold that reads CloudEvent stdin and PB_SOURCE."""
+    try:
+        typer.echo(render_hook_template(lang, topic=topic), nl=False)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @hook_app.command("list")

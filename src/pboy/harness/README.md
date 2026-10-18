@@ -9,6 +9,7 @@
 | `executor.py` | subprocess fork/exec, stdin/stderr/stdout 파이프 |
 | `watchdog.py` | 프로세스 타임아웃, 강제 종료 |
 | `reporter.py` | `pboy state put`/`pboy event complete` 통신 |
+| `hook_contract.py` | 등록 성공 힌트 · `pboy hook template` 스캐폴드 |
 
 ## 실행 흐름
 
@@ -30,32 +31,39 @@
 | `PB_EVENT_ID` | 이벤트 고유 ID |
 | `PB_SOURCE` | 원천 플랫폼 (`jira`, `confluence`, `slack`, `telegram`) |
 | `PB_HOOK_NAME` | 매칭된 훅 명칭 |
-| `PB_LEASE_TOKEN` | 세션 전용 임시 토큰 |
+| `PB_LEASE_TOKEN` | 리스 토큰(발급 시); 훅 API가 소비하지 않음 — 보통 무시 |
 
 ## 하네스 표준 레퍼런스
 
+스캐폴드 생성: `pboy hook template --lang python` (또는 `--lang bash`).
+
 ```python
 #!/usr/bin/env python3
-import sys, json, os, subprocess
+import json
+import os
+import subprocess
+import sys
 
-def run_pboy(*args):
-    return subprocess.run(["pboy", *args], check=True, text=True, capture_output=True)
 
-def main():
-    # Stdin: CloudEvents JSON
-    event = json.loads(sys.stdin.read())
-    event_id = os.environ["PB_EVENT_ID"]
+def main() -> None:
+    event = json.load(sys.stdin)
+    source = os.environ.get("PB_SOURCE", "")
+    summary = (event.get("data") or {}).get("summary") or ""
 
-    # 진행 상태 보고
-    run_pboy("state", "put", "--event-id", event_id,
-             "--status", "running", "--progress", "10")
+    subprocess.run(
+        ["pboy", "state", "put", "--status", "running", "--progress", "10"],
+        check=False,
+    )
 
-    # 비즈니스 로직
-    result = "Diagnosis complete"
+    result = f"Handled ({source}): {summary}" if summary else f"Handled ({source})"
 
-    # 완료 처리 + 멀티 채널 동시 회신
-    run_pboy("event", "complete", event_id,
-             "--summary", result, "--sync", "jira:comment,slack:thread")
+    # telegram/slack: event reply picks --sync from PB_SOURCE / event.source
+    if source in {"telegram", "slack"}:
+        subprocess.run(["pboy", "event", "reply", "--summary", result], check=False)
+    else:
+        # jira/confluence: complete without chat sync
+        subprocess.run(["pboy", "event", "complete", "--summary", result], check=False)
+
 
 if __name__ == "__main__":
     main()

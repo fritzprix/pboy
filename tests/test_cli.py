@@ -86,6 +86,9 @@ def test_cli_hook_lifecycle(cli_runner: CliRunner, cli_db: Path) -> None:
     )
     assert res_reg.exit_code == 0
     assert "Hook 'my_test_hook' registered" in res_reg.output
+    assert "PB_SOURCE='jira'" in res_reg.output
+    assert "com.atlassian.jira.issue.created" in res_reg.output
+    assert "pboy hook template" in res_reg.output
 
     # List populated
     res_list = cli_runner.invoke(app, ["hook", "list"])
@@ -97,6 +100,48 @@ def test_cli_hook_lifecycle(cli_runner: CliRunner, cli_db: Path) -> None:
     res_del = cli_runner.invoke(app, ["hook", "delete", "my_test_hook"])
     assert res_del.exit_code == 0
     assert "Hook 'my_test_hook' deleted." in res_del.output
+
+
+def test_cli_hook_register_wildcard_contract_hint(
+    cli_runner: CliRunner, cli_db: Path
+) -> None:
+    res = cli_runner.invoke(
+        app,
+        [
+            "hook",
+            "register",
+            "--name",
+            "wild_hook",
+            "--topic",
+            "*",
+            "--exec",
+            "echo hello",
+        ],
+    )
+    assert res.exit_code == 0
+    assert "Wildcard topic" in res.output
+    assert "PB_SOURCE" in res.output
+
+
+def test_cli_hook_template_python_and_bash(cli_runner: CliRunner) -> None:
+    py = cli_runner.invoke(app, ["hook", "template", "--lang", "python"])
+    assert py.exit_code == 0, py.output
+    assert "PB_EVENT_ID" in py.output
+    assert "PB_SOURCE" in py.output
+    assert "json.load" in py.output
+    assert "event reply" in py.output
+
+    bash = cli_runner.invoke(
+        app, ["hook", "template", "--lang", "bash", "--topic", "telegram:message"]
+    )
+    assert bash.exit_code == 0, bash.output
+    assert "topic hint: telegram:message" in bash.output
+    assert "jq -r '.data.summary" in bash.output
+    assert bash.output.startswith("#!")
+
+    bad = cli_runner.invoke(app, ["hook", "template", "--lang", "ruby"])
+    assert bad.exit_code == 1
+    assert "Unsupported language" in bad.output
 
 
 def test_cli_state_put_and_get(cli_runner: CliRunner, cli_db: Path) -> None:
@@ -356,6 +401,11 @@ def test_agent_brief_leads_with_telegram_bot_reply() -> None:
     assert "read-only" in text
     # Reply section appears before the three jobs checklist.
     assert text.index("Reply in chat") < text.index("Your three jobs")
+    assert "Writing a hook script" in text
+    assert "PB_SOURCE" in text
+    assert "com.telegram.message.received" in text
+    assert "pboy hook template" in text
+    assert text.index("Hooks and completion") < text.index("Writing a hook script")
 
 
 def test_cli_telegram_reply_forces_telegram_sync_not_slack(
