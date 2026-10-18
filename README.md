@@ -163,6 +163,25 @@ uvx pboy channel enable telegram
 
 If the daemon runs on a non-default port, pass `--daemon-url http://127.0.0.1:<port>`.
 
+## MCP (agents)
+
+Expose a curated tool surface to Cursor / other MCP hosts over stdio:
+
+```bash
+uvx pboy mcp
+# or with a non-default daemon:
+uvx pboy mcp --daemon-url http://127.0.0.1:9000
+```
+
+If no daemon is listening, `pboy mcp` starts one in the background
+(`daemon --ui`) and leaves it running after MCP exits. `pboy ui` does the
+same check: if a daemon is already up, it prints the URL and exits instead of
+starting a second process.
+
+Tools: `list_events`, `get_event`, `reply_event`, `list_hooks`, `register_hook`,
+`delete_hook`, `status`, plus optional App API reads `telegram_list_chats` /
+`telegram_list_messages`. Event inject and secret writes are not exposed.
+
 ## HTTP API
 
 While the daemon is running, interactive docs are at <http://127.0.0.1:8080/docs>

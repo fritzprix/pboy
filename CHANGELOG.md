@@ -19,6 +19,17 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Added
+
+- MCP stdio server (`pboy mcp`) for agents: `list_events`, `get_event`,
+  `reply_event`, `list_hooks`, `register_hook`, `delete_hook`, `status`,
+  `telegram_list_chats`, `telegram_list_messages`. Event inject and secret
+  writes are intentionally not exposed. Depends on `mcp>=2,<3`.
+- Singleton daemon ensure: `pboy mcp` (and a no-op path via `pboy ui`) probe
+  `/healthz` and spawn at most one background `pboy daemon --ui` if needed.
+  The daemon is left running when MCP exits; a second `pboy ui` prints the
+  existing URL instead of binding again.
+
 ## [0.3.4] — 2026-10-18
 
 Hook authoring discoverability for AI agents: template scaffolds, register-time

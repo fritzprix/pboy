@@ -60,6 +60,10 @@ read-only” from chats/messages/download/export alone.
 - Start UI+daemon: `uvx pboy ui` or `pboy daemon --ui`.
 - CLI auto-connects to a running daemon on the default port (8080). On any other
   port, pass `--daemon-url {base_url}`.
+- MCP (stdio): `pboy mcp` — tools for list/get events, `reply_event`, hooks,
+  `status`, optional `telegram_list_*` App API reads. No event inject / secret
+  writes. Starts the local daemon in the background if needed and leaves it
+  running when MCP exits.
 - Do not reverse-proxy the daemon or bind non-loopback hosts.
 
 ## Telegram: two separate rails (do not conflate)
