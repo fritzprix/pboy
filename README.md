@@ -94,6 +94,8 @@ result=$(do-something-with "$text")
 pboy event reply --summary "$result"   # uses $PB_EVENT_ID; bot reply
 ```
 
+Scaffold the same contract with `pboy hook template --lang python` (or `--lang bash`).
+
 **Topics:** `telegram:message`, `slack:message`, `jira:issue.created`, `jira:issue.updated`,
 `confluence:page.updated`.
 

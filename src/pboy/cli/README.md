@@ -31,6 +31,7 @@ pboy [--daemon-url / -u <url>]
 ├── status                 # 데몬(/healthz) 또는 로컬 스토어/채널 상태 JSON 출력
 ├── hook
 │   ├── register           # 훅 등록 (--name, --topic, --exec, --filter, --concurrency, --timeout)
+│   ├── template           # 핸들러 스캐폴드 출력 (--lang python|bash, [--topic])
 │   ├── list               # 훅 목록 조회
 │   └── delete <name>      # 훅 삭제
 ├── state

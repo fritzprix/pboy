@@ -99,17 +99,62 @@ pboy hook list
 pboy event list
 pboy event get <id> --verbose
 pboy event reply <id> --summary '…'
+pboy hook template --lang python   # stdin + PB_SOURCE scaffold
 ```
 
 - Topics include: `telegram:message`, `slack:message`, `jira:issue.created`,
-  `jira:issue.updated`, `confluence:page.updated`.
+  `jira:issue.updated`, `confluence:page.updated` (wildcards: `telegram:*`, `*`).
+- Matching uses **topic / CloudEvent type**, not `PB_SOURCE` alone — do not register
+  `--topic telegram` (no match). Prefer `telegram:message` or `com.telegram.message.received`.
 - `--filter` is fail-closed: only `.path == "value"` / `!=` are supported; anything
   else matches nothing.
-- Hook process gets event JSON on stdin and env such as `PB_EVENT_ID`, `PB_SOURCE`,
-  `PB_HOOK_NAME`. Reply with `pboy event reply` and `$PB_EVENT_ID`; it picks
-  Telegram or Slack from the event source (`complete --sync telegram|slack` is the
-  explicit form).
 - Never put secrets in `hook.exec`. Prefer allowlisted chats over open inbound.
+
+## Writing a hook script
+
+Hook subprocess contract (always):
+
+| Input | Contents |
+|-------|----------|
+| stdin | **Normalized** CloudEvent v1.0 JSON (not platform-raw Telegram/Slack/Jira bodies) |
+| `PB_EVENT_ID` | Event id; `pboy event reply` / `complete` / `get` default to it |
+| `PB_SOURCE` | `telegram`, `slack`, `jira`, or `confluence` |
+| `PB_HOOK_NAME` | Hook name |
+| `PB_LEASE_TOKEN` | Optional; set by harness — usually ignore |
+
+Topic → `PB_SOURCE` / CloudEvent `type`:
+
+| Topic | `PB_SOURCE` | `type` |
+|-------|-------------|--------|
+| `telegram:message` | `telegram` | `com.telegram.message.received` |
+| `slack:message` | `slack` | `com.slack.message.received` |
+| `jira:issue.created` | `jira` | `com.atlassian.jira.issue.created` |
+| `jira:issue.updated` | `jira` | `com.atlassian.jira.issue.updated` |
+| `confluence:page.updated` | `confluence` | `com.atlassian.confluence.page.updated` |
+
+Prefer these normalized `.data` keys (do **not** invent `.text` / `.message.chat`):
+`summary`, `channel_id`, `entity_key`, `thread_id`, `actor`, `attachments`, `extra`.
+
+Minimal Python pattern:
+
+```python
+import json, os, sys, subprocess
+source = os.environ.get("PB_SOURCE")
+event = json.load(sys.stdin)
+summary = (event.get("data") or {}).get("summary")
+if source == "telegram":
+    pass  # channel-specific actions
+elif source == "slack":
+    pass
+subprocess.run(["pboy", "event", "reply", "--summary", summary or "ack"], check=False)
+```
+
+- Chat reply (`event reply`) works for **telegram/slack** only; for jira/confluence use
+  `pboy event complete --summary '…'` (no `--sync`) or log and exit.
+- Wildcard topics (`*` / `telegram:*`): **branch on `PB_SOURCE`** — schemas differ by channel.
+- Dry-run match without running hooks: `pboy event inject --source telegram --payload '…' --no-dispatch`.
+  Inject payload is platform-raw; hooks still see the normalized CloudEvent on stdin.
+- Scaffold: `pboy hook template --lang python` or `--lang bash`.
 
 ## Docs
 
