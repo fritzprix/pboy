@@ -19,6 +19,11 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-10-18
+
+Hook authoring discoverability for AI agents: template scaffolds, register-time
+contract hints, and an expanded agent brief.
+
 ### Added
 
 - `pboy hook template --lang python|bash` prints a CloudEvent stdin / `PB_SOURCE`
@@ -173,7 +178,8 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/fritzprix/pboy/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/fritzprix/pboy/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/fritzprix/pboy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/fritzprix/pboy/compare/v0.3.0...v0.3.1
