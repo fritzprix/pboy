@@ -22,10 +22,10 @@ from loguru import logger
 from pboy.cli.daemon_client import (
     DEFAULT_DAEMON_URL,
     LEGACY_DAEMON_URL,
-    _probe_daemon_alive,
     suppress_legacy_daemon_hint,
 )
 from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT, get_settings
+from pboy.core.probe import probe_daemon_alive
 from pboy.daemon.server import _public_daemon_url, assert_loopback_bind
 
 
@@ -44,7 +44,7 @@ class EnsureDaemonError(RuntimeError):
 
 def probe_daemon(url: str, *, timeout: float = 0.3) -> bool:
     """Return True if a Pageboy daemon answers ``/healthz`` at ``url``."""
-    return _probe_daemon_alive(url, timeout=timeout)
+    return probe_daemon_alive(url, timeout=timeout)
 
 
 def daemon_base_url(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> str:
