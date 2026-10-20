@@ -19,6 +19,30 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Default daemon port is now `17680` (was `8080`) to avoid clashes with common
+  local HTTP stacks. CLI auto-probe and `pboy ui` / `pboy daemon` defaults follow
+  the same port (`PB_PORT` / `--port` still override). Migration: if a daemon is
+  still listening on `:8080`, the CLI prints a stderr hint (does not auto-connect)
+  to pass `--daemon-url` or restart on `17680` (#62).
+- Health probe for a live daemon is now public `pboy.core.probe.probe_daemon_alive`
+  (CLI / ensure share it; daemon layer no longer needs a private CLI import) (#68).
+
+### Fixed
+
+- Mutating CLI paths (`hook register`/`delete`, `channel enable`/`disable`/
+  `set-secret`) warn when no daemon is reachable on the default URL and the
+  command falls back to local SQLite — reduces silent split-brain when the
+  daemon runs on a custom port (#60).
+- `ensure_daemon_url` / `pboy mcp` reuse a leftover daemon on `:8080` instead of
+  spawning a second process on the new default port (avoids dual channel
+  pollers on one DB) (#64).
+- `pboy daemon` / `pboy ui` starting on the new default port warn when a legacy
+  `:8080` daemon is already up (shared DB / double channel polling risk) (#66).
+- `pboy.daemon` no longer eagerly imports `create_app` (lazy `__getattr__`), so
+  importing daemon submodules does not load the FastAPI stack (#70).
+
 ## [0.4.0] — 2026-10-18
 
 MCP stdio server for AI agent hosts, plus singleton local daemon auto-start

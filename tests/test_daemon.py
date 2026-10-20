@@ -289,10 +289,37 @@ def test_run_daemon_logs_ui_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     sink_id = logger.add(lambda msg: logs.append(str(msg)), format="{message}")
     try:
         monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
+        monkeypatch.setattr(server_mod, "probe_daemon_alive", lambda *_a, **_k: False)
         server_mod.run_daemon(host="127.0.0.1", port=8080, db=tmp_path / "d.db", ui=True)
         assert any("UI URL: http://127.0.0.1:8080/ui" in msg for msg in logs)
     finally:
         logger.remove(sink_id)
+
+
+def test_run_daemon_warns_when_legacy_8080_also_running(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, LEGACY_DAEMON_URL
+    from pboy.core.config import DEFAULT_PORT
+    from pboy.daemon import server as server_mod
+
+    if DEFAULT_PORT == 8080:
+        pytest.skip("legacy warn only applies when default port is not 8080")
+
+    monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        server_mod,
+        "probe_daemon_alive",
+        lambda url, timeout=0.15: url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/"),
+    )
+    server_mod.run_daemon(
+        host="127.0.0.1", port=DEFAULT_PORT, db=tmp_path / "d.db", ui=False
+    )
+    err = capsys.readouterr().err
+    assert "Warning:" in err
+    assert LEGACY_DAEMON_URL in err
+    assert DEFAULT_DAEMON_URL in err
+    assert "double-poll" in err
 
 
 @pytest.mark.asyncio

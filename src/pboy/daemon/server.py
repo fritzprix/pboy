@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import uvicorn
 from loguru import logger
 
-from pboy.core.config import get_settings
+from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, LEGACY_DAEMON_URL
+from pboy.core.config import DEFAULT_PORT, get_settings
+from pboy.core.probe import probe_daemon_alive
 from pboy.daemon.app import create_app
 from pboy.daemon.guard import is_loopback_bind
 
@@ -33,6 +36,22 @@ def _public_daemon_url(host: str, port: int) -> str:
     return f"http://{h}:{port}"
 
 
+def _warn_if_legacy_daemon_also_running(port: int) -> None:
+    """Warn when starting on the new default while a :8080 daemon still shares the DB."""
+    if port != DEFAULT_PORT or DEFAULT_DAEMON_URL == LEGACY_DAEMON_URL:
+        return
+    if not probe_daemon_alive(LEGACY_DAEMON_URL):
+        return
+    msg = (
+        f"Warning: a Pageboy daemon is already running at {LEGACY_DAEMON_URL} "
+        f"while starting on {DEFAULT_DAEMON_URL}. Both may share one SQLite DB and "
+        f"double-poll channels (e.g. Telegram). Stop the :8080 process or use "
+        f"--daemon-url {LEGACY_DAEMON_URL} instead of starting a second daemon."
+    )
+    logger.warning("{}", msg)
+    print(msg, file=sys.stderr)
+
+
 def run_daemon(
     *,
     host: str | None = None,
@@ -52,6 +71,7 @@ def run_daemon(
     from pboy.channels.env_contract import warn_removed_channel_env_vars
 
     warn_removed_channel_env_vars()
+    _warn_if_legacy_daemon_also_running(actual_port)
     public_url = _public_daemon_url(actual_host, actual_port)
     ui_url = f"{public_url}/ui"
     app = create_app(db_path=db, enable_ui=ui, public_url=public_url)
