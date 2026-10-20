@@ -392,9 +392,8 @@ def test_cli_event_reply_completes_with_telegram_sync(
 
 
 def test_agent_brief_leads_with_telegram_bot_reply() -> None:
-    from pboy.ui.agent_brief import render_agent_brief
-
     from pboy.core.config import DEFAULT_PORT
+    from pboy.ui.agent_brief import render_agent_brief
 
     text = render_agent_brief("http://127.0.0.1:8080")
     assert "Reply in chat" in text
