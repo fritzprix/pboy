@@ -26,7 +26,7 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   the same port (`PB_PORT` / `--port` still override). Migration: if a daemon is
   still listening on `:8080`, the CLI prints a stderr hint (does not auto-connect)
   to pass `--daemon-url` or restart on `17680` (#62).
-- Health probe for a live daemon is now public ``pboy.daemon.probe.probe_daemon_alive``
+- Health probe for a live daemon is now public `pboy.core.probe.probe_daemon_alive`
   (CLI / ensure share it; daemon layer no longer needs a private CLI import) (#68).
 
 ### Fixed

@@ -1,7 +1,7 @@
 """Neutral HTTP health probe for a local Pageboy daemon.
 
-Shared by CLI auto-connect, ``ensure_daemon``, and ``run_daemon`` so daemon-layer
-code does not import ``pboy.cli``.
+Shared by CLI auto-connect and daemon ensure/server so neither side needs a
+private import from the other package.
 """
 
 from __future__ import annotations

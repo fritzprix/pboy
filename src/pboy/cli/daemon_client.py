@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT
-from pboy.daemon.probe import probe_daemon_alive
+from pboy.core.probe import probe_daemon_alive
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
@@ -18,7 +18,7 @@ DEFAULT_DAEMON_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
 LEGACY_DAEMON_URL = f"http://{DEFAULT_HOST}:8080"
 _legacy_daemon_hint_emitted: bool = False
 
-# Back-compat alias for tests / callers that patch ``_probe_daemon_alive``.
+# Back-compat alias for tests / callers that patch `_probe_daemon_alive`.
 _probe_daemon_alive = probe_daemon_alive
 
 

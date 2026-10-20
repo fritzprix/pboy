@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pboy.daemon.probe import probe_daemon_alive
+from pboy.core.probe import probe_daemon_alive
 
 
 def test_probe_daemon_alive_false_when_unreachable() -> None:
@@ -12,7 +12,7 @@ def test_probe_daemon_alive_false_when_unreachable() -> None:
 
 
 def test_probe_daemon_alive_true_for_pboy_healthz(monkeypatch: pytest.MonkeyPatch) -> None:
-    import pboy.daemon.probe as probe_mod
+    import pboy.core.probe as probe_mod
 
     class _Res:
         status_code = 200

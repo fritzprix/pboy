@@ -25,7 +25,7 @@ from pboy.cli.daemon_client import (
     suppress_legacy_daemon_hint,
 )
 from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT, get_settings
-from pboy.daemon.probe import probe_daemon_alive
+from pboy.core.probe import probe_daemon_alive
 from pboy.daemon.server import _public_daemon_url, assert_loopback_bind
 
 
