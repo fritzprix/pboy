@@ -6,9 +6,10 @@ import sys
 
 
 def test_daemon_package_does_not_eagerly_import_create_app() -> None:
-    for name in list(sys.modules):
-        if name == "pboy.daemon" or name.startswith("pboy.daemon."):
-            del sys.modules[name]
+    # Only drop the package shell + app; do not wipe sibling submodules
+    # (e.g. ensure) or other tests' module-level imports / monkeypatches break.
+    sys.modules.pop("pboy.daemon.app", None)
+    sys.modules.pop("pboy.daemon", None)
 
     import pboy.daemon as daemon_pkg
 
