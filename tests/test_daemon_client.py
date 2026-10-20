@@ -46,6 +46,7 @@ def test_resolve_daemon_url_cli_flag_and_auto_probe(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
     monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
+    monkeypatch.setattr(dc_mod, "_warn_legacy_daemon_if_running", lambda: None)
     assert resolve_daemon_url() is None
     assert resolve_daemon_url("  http://127.0.0.1:9999/  ") == "http://127.0.0.1:9999"
 
@@ -57,6 +58,31 @@ def test_resolve_daemon_url_cli_flag_and_auto_probe(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("PB_DATABASE_URL", "/tmp/custom.db")
     assert resolve_daemon_url() is None
     assert resolve_daemon_url(DEFAULT_DAEMON_URL) == DEFAULT_DAEMON_URL
+
+
+def test_resolve_daemon_url_hints_legacy_8080(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import pboy.cli.daemon_client as dc_mod
+    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
+
+    def fake_probe(url: str, timeout: float = 0.15) -> bool:
+        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
+    assert resolve_daemon_url() is None
+    err = capsys.readouterr().err
+    assert "Hint:" in err
+    assert LEGACY_DAEMON_URL in err
+    assert DEFAULT_DAEMON_URL in err
+    assert "--daemon-url" in err
+
+    # Once per process — second resolve must not reprint.
+    assert resolve_daemon_url() is None
+    assert capsys.readouterr().err == ""
 
 
 def test_public_daemon_url_for_loopback_bind() -> None:

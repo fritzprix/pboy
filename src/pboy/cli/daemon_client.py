@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 import httpx
@@ -12,6 +13,9 @@ from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
 DEFAULT_DAEMON_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
+# Previous default (≤0.3.4) before the 8080 → 17680 move; probe for migration hints only.
+LEGACY_DAEMON_URL = f"http://{DEFAULT_HOST}:8080"
+_legacy_daemon_hint_emitted: bool = False
 
 
 def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
@@ -21,6 +25,22 @@ def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
         return res.status_code == 200 and res.json().get("service") == "pboy-daemon"
     except Exception:
         return False
+
+
+def _warn_legacy_daemon_if_running() -> None:
+    """Hint once per process when a daemon is still listening on :8080."""
+    global _legacy_daemon_hint_emitted
+    if _legacy_daemon_hint_emitted or DEFAULT_PORT == 8080:
+        return
+    if not _probe_daemon_alive(LEGACY_DAEMON_URL):
+        return
+    _legacy_daemon_hint_emitted = True
+    print(
+        f"Hint: a Pageboy daemon is still running at {LEGACY_DAEMON_URL} "
+        f"(default is now {DEFAULT_DAEMON_URL}). "
+        f"Pass --daemon-url {LEGACY_DAEMON_URL} or restart the daemon on port {DEFAULT_PORT}.",
+        file=sys.stderr,
+    )
 
 
 def resolve_daemon_url(
@@ -38,6 +58,7 @@ def resolve_daemon_url(
         return None
     if _probe_daemon_alive(DEFAULT_DAEMON_URL):
         return DEFAULT_DAEMON_URL
+    _warn_legacy_daemon_if_running()
     return None
 
 
