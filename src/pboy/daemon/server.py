@@ -8,12 +8,9 @@ from pathlib import Path
 import uvicorn
 from loguru import logger
 
-from pboy.cli.daemon_client import (
-    DEFAULT_DAEMON_URL,
-    LEGACY_DAEMON_URL,
-    _probe_daemon_alive,
-)
+from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, LEGACY_DAEMON_URL
 from pboy.core.config import DEFAULT_PORT, get_settings
+from pboy.core.probe import probe_daemon_alive
 from pboy.daemon.app import create_app
 from pboy.daemon.guard import is_loopback_bind
 
@@ -43,7 +40,7 @@ def _warn_if_legacy_daemon_also_running(port: int) -> None:
     """Warn when starting on the new default while a :8080 daemon still shares the DB."""
     if port != DEFAULT_PORT or DEFAULT_DAEMON_URL == LEGACY_DAEMON_URL:
         return
-    if not _probe_daemon_alive(LEGACY_DAEMON_URL):
+    if not probe_daemon_alive(LEGACY_DAEMON_URL):
         return
     msg = (
         f"Warning: a Pageboy daemon is already running at {LEGACY_DAEMON_URL} "
