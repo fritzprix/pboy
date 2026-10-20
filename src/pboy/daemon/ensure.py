@@ -19,13 +19,14 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, _probe_daemon_alive
+from pboy.cli.daemon_client import (
+    DEFAULT_DAEMON_URL,
+    LEGACY_DAEMON_URL,
+    _probe_daemon_alive,
+    suppress_legacy_daemon_hint,
+)
 from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT, get_settings
 from pboy.daemon.server import _public_daemon_url, assert_loopback_bind
-
-# Previous default port (≤0.3.4); used only to detect leftover daemons after the
-# 8080 → 17680 move so ensure/mcp do not spawn a second process on the new port.
-_LEGACY_DAEMON_PORT = 8080
 
 
 @dataclass(frozen=True)
@@ -120,19 +121,20 @@ def ensure_daemon_url(
         port = settings.port if settings.port else port
         if (
             port == DEFAULT_PORT
-            and DEFAULT_PORT != _LEGACY_DAEMON_PORT
+            and DEFAULT_DAEMON_URL != LEGACY_DAEMON_URL
             and not probe_daemon(daemon_base_url(host, port))
+            and probe_daemon(LEGACY_DAEMON_URL)
         ):
-            legacy_url = daemon_base_url(DEFAULT_HOST, _LEGACY_DAEMON_PORT)
-            if probe_daemon(legacy_url):
-                msg = (
-                    f"Reusing legacy Pageboy daemon at {legacy_url} "
-                    f"(default is now {DEFAULT_DAEMON_URL}); not spawning a second "
-                    f"daemon on port {DEFAULT_PORT}. Restart on {DEFAULT_PORT} when ready."
-                )
-                logger.warning("{}", msg)
-                print(msg, file=sys.stderr)
-                return EnsureDaemonResult(url=legacy_url, started=False)
+            msg = (
+                f"Reusing legacy Pageboy daemon at {LEGACY_DAEMON_URL} "
+                f"(default is now {DEFAULT_DAEMON_URL}); not spawning a second "
+                f"daemon on port {DEFAULT_PORT}. Restart on {DEFAULT_PORT} when ready."
+            )
+            logger.warning("{}", msg)
+            print(msg, file=sys.stderr)
+            # Avoid a second stderr line from resolve_daemon_url's migration Hint.
+            suppress_legacy_daemon_hint()
+            return EnsureDaemonResult(url=LEGACY_DAEMON_URL, started=False)
     return ensure_daemon(
         host=host, port=port, db=db, ui=ui, wait_seconds=wait_seconds
     )

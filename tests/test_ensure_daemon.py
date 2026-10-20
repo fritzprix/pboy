@@ -193,21 +193,30 @@ def test_mcp_ensures_then_runs_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_ensure_daemon_url_reuses_legacy_8080_instead_of_spawn(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    import pboy.cli.daemon_client as dc_mod
+    from pboy.cli.daemon_client import LEGACY_DAEMON_URL, resolve_daemon_url
+
     if DEFAULT_PORT == 8080:
         pytest.skip("legacy attach only applies when default port is not 8080")
 
-    legacy_url = daemon_base_url("127.0.0.1", 8080)
+    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
     spawn = MagicMock()
     monkeypatch.setattr("pboy.daemon.ensure._spawn_daemon", spawn)
 
     def fake_probe(url: str, *, timeout: float = 0.3) -> bool:
-        return url.rstrip("/") == legacy_url.rstrip("/")
+        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
 
     monkeypatch.setattr("pboy.daemon.ensure.probe_daemon", fake_probe)
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
     result = ensure_daemon_url(None)
-    assert result == EnsureDaemonResult(url=legacy_url, started=False)
+    assert result == EnsureDaemonResult(url=LEGACY_DAEMON_URL, started=False)
     spawn.assert_not_called()
     err = capsys.readouterr().err
     assert "Reusing legacy" in err
-    assert legacy_url in err
+    assert LEGACY_DAEMON_URL in err
     assert DEFAULT_DAEMON_URL in err
+    assert "Hint:" not in err
+
+    # Subsequent resolve must not print the migration Hint again.
+    assert resolve_daemon_url() is None
+    assert "Hint:" not in capsys.readouterr().err
