@@ -36,6 +36,8 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 - `ensure_daemon_url` / `pboy mcp` reuse a leftover daemon on `:8080` instead of
   spawning a second process on the new default port (avoids dual channel
   pollers on one DB) (#64).
+- `pboy daemon` / `pboy ui` starting on the new default port warn when a legacy
+  `:8080` daemon is already up (shared DB / double channel polling risk) (#66).
 
 ### Added
 
