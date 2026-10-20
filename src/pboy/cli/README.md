@@ -7,11 +7,11 @@
 | 파일 | 설명 |
 |------|------|
 | `main.py` | CLI 진입점 (`pboy`/`pb` 명령어), `daemon` / `ui` / `status` / `hook` / `state` / `event` / `channel` 그룹 |
-| `daemon_client.py` | 실행 중인 데몬(`http://127.0.0.1:8080` 자동 감지 또는 `--daemon-url`)의 HTTP API(`/healthz`, `/v1/*`)를 호출하는 동기 클라이언트 |
+| `daemon_client.py` | 실행 중인 데몬(`http://127.0.0.1:17680` 자동 감지 또는 `--daemon-url`)의 HTTP API(`/healthz`, `/v1/*`)를 호출하는 동기 클라이언트 |
 
 ## 데몬 자동 연결 (`--daemon-url`) 및 하네스 환경변수
 
-- **데몬 자동 감지**: 데몬(`pboy ui` 또는 `pboy daemon`)이 기본 주소(`http://127.0.0.1:8080`)에서 실행 중이면, 별도 옵션이나 환경변수 없이도 CLI 명령(`hook`, `channel`, `event`, `state`, `status`)이 **자동으로 데몬 HTTP API에 연결**됩니다.
+- **데몬 자동 감지**: 데몬(`pboy ui` 또는 `pboy daemon`)이 기본 주소(`http://127.0.0.1:17680`)에서 실행 중이면, 별도 옵션이나 환경변수 없이도 CLI 명령(`hook`, `channel`, `event`, `state`, `status`)이 **자동으로 데몬 HTTP API에 연결**됩니다.
   - 데몬을 다른 포트로 띄웠다면 `--daemon-url http://127.0.0.1:9000` (단축 `-u`) 옵션을 전달합니다.
   - 데몬이 실행 중이지 않거나 `PB_DATABASE_URL`로 별도 로컬 DB를 지정한 경우에만 로컬 SQLite 파일에 직접 접근합니다.
 - **Allowlist 적용 범위 (`telegram.allowlist` vs `event inject`)**:
@@ -52,10 +52,10 @@ pboy [--daemon-url / -u <url>]
 ## 에이전트 / 운영자 사용 패턴
 
 ```bash
-# 1. 데몬 + UI 시작 (기본 127.0.0.1:8080)
+# 1. 데몬 + UI 시작 (기본 127.0.0.1:17680)
 uvx pboy ui
 
-# 2. 다른 셸에서 상태 확인 (127.0.0.1:8080 데몬에 자동 연결)
+# 2. 다른 셸에서 상태 확인 (127.0.0.1:17680 데몬에 자동 연결)
 uvx pboy status
 
 # 3. 텔레그램 토큰 + 인바운드 allowlist 설정 및 채널 활성화

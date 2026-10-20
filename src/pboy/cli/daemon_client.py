@@ -7,10 +7,11 @@ from typing import Any
 
 import httpx
 
+from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
-DEFAULT_DAEMON_URL = "http://127.0.0.1:8080"
+DEFAULT_DAEMON_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
 
 
 def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
@@ -27,7 +28,7 @@ def resolve_daemon_url(
     *,
     auto_probe: bool = True,
 ) -> str | None:
-    """Return explicit ``--daemon-url``, or auto-probe ``http://127.0.0.1:8080`` if running."""
+    """Return explicit ``--daemon-url``, or auto-probe the default daemon URL if running."""
     if cli_url and cli_url.strip():
         return cli_url.strip().rstrip("/")
     if not auto_probe:

@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 from loguru import logger
 
 from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, _probe_daemon_alive
-from pboy.core.config import get_settings
+from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT, get_settings
 from pboy.daemon.server import _public_daemon_url, assert_loopback_bind
 
 
@@ -42,7 +42,7 @@ def probe_daemon(url: str, *, timeout: float = 0.3) -> bool:
     return _probe_daemon_alive(url, timeout=timeout)
 
 
-def daemon_base_url(host: str = "127.0.0.1", port: int = 8080) -> str:
+def daemon_base_url(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> str:
     """Loopback HTTP base URL for the given bind."""
     return _public_daemon_url(host, port)
 
@@ -51,15 +51,15 @@ def parse_daemon_url(url: str) -> tuple[str, int]:
     """Extract host and port from an HTTP daemon URL."""
     cleaned = url.strip().rstrip("/")
     parsed = urlparse(cleaned if "://" in cleaned else f"http://{cleaned}")
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or 8080
+    host = parsed.hostname or DEFAULT_HOST
+    port = parsed.port or DEFAULT_PORT
     return host, port
 
 
 def ensure_daemon(
     *,
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
     db: str | Path | None = None,
     ui: bool = True,
     wait_seconds: float = 30.0,
@@ -100,11 +100,11 @@ def ensure_daemon_url(
     ui: bool = True,
     wait_seconds: float = 30.0,
 ) -> EnsureDaemonResult:
-    """Ensure daemon at ``daemon_url`` or the default ``http://127.0.0.1:8080``."""
+    """Ensure daemon at ``daemon_url`` or the default loopback URL."""
     if daemon_url and daemon_url.strip():
         host, port = parse_daemon_url(daemon_url)
     else:
-        host, port = "127.0.0.1", 8080
+        host, port = DEFAULT_HOST, DEFAULT_PORT
         # Match CLI default when settings override port.
         settings = get_settings()
         host = settings.host or host

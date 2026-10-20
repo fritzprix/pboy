@@ -19,6 +19,19 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased]
 
+### Changed
+
+- Default daemon port is now `17680` (was `8080`) to avoid clashes with common
+  local HTTP stacks. CLI auto-probe and `pboy ui` / `pboy daemon` defaults follow
+  the same port (`PB_PORT` / `--port` still override).
+
+### Fixed
+
+- Mutating CLI paths (`hook register`/`delete`, `channel enable`/`disable`/
+  `set-secret`) warn when no daemon is reachable on the default URL and the
+  command falls back to local SQLite — reduces silent split-brain when the
+  daemon runs on a custom port (#60).
+
 ### Added
 
 - MCP stdio server (`pboy mcp`) for agents: `list_events`, `get_event`,

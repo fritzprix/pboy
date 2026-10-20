@@ -394,11 +394,15 @@ def test_cli_event_reply_completes_with_telegram_sync(
 def test_agent_brief_leads_with_telegram_bot_reply() -> None:
     from pboy.ui.agent_brief import render_agent_brief
 
+    from pboy.core.config import DEFAULT_PORT
+
     text = render_agent_brief("http://127.0.0.1:8080")
     assert "Reply in chat" in text
     assert "pboy event reply" in text
     assert "--sync slack" in text
     assert "read-only" in text
+    assert f"default port ({DEFAULT_PORT})" in text
+    assert "{default_port}" not in text
     # Reply section appears before the three jobs checklist.
     assert text.index("Reply in chat") < text.index("Your three jobs")
     assert "Writing a hook script" in text

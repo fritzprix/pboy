@@ -65,7 +65,7 @@ loopback + local `Host` like any other client.
 ## Operator expectations
 
 - Run on the same machine as the browser/CLI (`uvx pboy ui`).
-- CLI automatically connects to `http://127.0.0.1:8080` when the daemon is running (pass `--daemon-url` if using a custom port).
+- CLI automatically connects to `http://127.0.0.1:17680` when the daemon is running (pass `--daemon-url` if using a custom port).
 - Do not publish the port, and do not reverse-proxy it.
 
 ## Production security checklist
@@ -85,8 +85,8 @@ Operator-facing checklist for a **local** Alpha install. There is **no**
 | Telegram bot (wake-up) | BotFather `telegram.bot_token` + optional allowlist pairing. Empty allowlist ⇒ any chat can trigger hooks. |
 | Telegram App API (analysis) | Separate rail: `api_id` / `api_hash` + one-time **account connect** (`telegram.app_session`). Used for `pboy telegram chats\|messages\|download\|export` over the user account’s dialogs — not a substitute for bot wake-up. Treat `app_session` like a password. |
 | Hooks | Only register `exec` you intend to run; harness runs as the daemon OS user with full local privileges of that account. Do not inline secrets in `hook.exec` command strings (spawn failures surface `hook.exec` and `argv` in execution `stderr`). |
-| CLI split-brain | CLI auto-connects to `http://127.0.0.1:8080` when the daemon is up; pass `--daemon-url http://127.0.0.1:<port>` if running on a custom port so CLI mutations hit the same DB. |
-| Health | `curl -s http://127.0.0.1:8080/healthz` (or `pboy status`) from the same host only. |
+| CLI split-brain | CLI auto-connects to `http://127.0.0.1:17680` when the daemon is up; pass `--daemon-url http://127.0.0.1:<port>` if running on a custom port so CLI mutations hit the same DB. |
+| Health | `curl -s http://127.0.0.1:17680/healthz` (or `pboy status`) from the same host only. |
 
 ## Outbound / SSRF policy (Telegram)
 
