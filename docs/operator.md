@@ -221,6 +221,8 @@ uvx pboy status
 
 Fix: run the daemon on the default port (`17680`) so CLI auto-connects, or pass `--daemon-url http://127.0.0.1:<port>` when using a custom port. Mutating CLI commands (`hook register`/`delete`, `channel enable`/`disable`/`set-secret`) print a warning when they fall back to local SQLite because no daemon answered on the default URL.
 
+After the default port moved from `8080` → `17680`, a daemon still bound to `:8080` is **not** auto-connected. The CLI probes `:8080` once and prints a stderr hint to pass `--daemon-url http://127.0.0.1:8080` or restart on `17680`.
+
 ### HTTP 403 / cannot reach UI or API
 
 There is **no** auth token and **no** HTTP 401 login flow.

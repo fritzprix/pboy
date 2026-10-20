@@ -23,7 +23,9 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 - Default daemon port is now `17680` (was `8080`) to avoid clashes with common
   local HTTP stacks. CLI auto-probe and `pboy ui` / `pboy daemon` defaults follow
-  the same port (`PB_PORT` / `--port` still override).
+  the same port (`PB_PORT` / `--port` still override). Migration: if a daemon is
+  still listening on `:8080`, the CLI prints a stderr hint (does not auto-connect)
+  to pass `--daemon-url` or restart on `17680` (#62).
 
 ### Fixed
 
