@@ -289,7 +289,7 @@ def test_run_daemon_logs_ui_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     sink_id = logger.add(lambda msg: logs.append(str(msg)), format="{message}")
     try:
         monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
-        monkeypatch.setattr(server_mod, "_probe_daemon_alive", lambda *_a, **_k: False)
+        monkeypatch.setattr(server_mod, "probe_daemon_alive", lambda *_a, **_k: False)
         server_mod.run_daemon(host="127.0.0.1", port=8080, db=tmp_path / "d.db", ui=True)
         assert any("UI URL: http://127.0.0.1:8080/ui" in msg for msg in logs)
     finally:
@@ -309,7 +309,7 @@ def test_run_daemon_warns_when_legacy_8080_also_running(
     monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
     monkeypatch.setattr(
         server_mod,
-        "_probe_daemon_alive",
+        "probe_daemon_alive",
         lambda url, timeout=0.15: url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/"),
     )
     server_mod.run_daemon(
