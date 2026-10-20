@@ -40,6 +40,8 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   pollers on one DB) (#64).
 - `pboy daemon` / `pboy ui` starting on the new default port warn when a legacy
   `:8080` daemon is already up (shared DB / double channel polling risk) (#66).
+- `pboy.daemon` no longer eagerly imports `create_app` (lazy `__getattr__`), so
+  importing daemon submodules does not load the FastAPI stack (#70).
 
 ### Added
 
