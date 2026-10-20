@@ -33,6 +33,9 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
   `set-secret`) warn when no daemon is reachable on the default URL and the
   command falls back to local SQLite — reduces silent split-brain when the
   daemon runs on a custom port (#60).
+- `ensure_daemon_url` / `pboy mcp` reuse a leftover daemon on `:8080` instead of
+  spawning a second process on the new default port (avoids dual channel
+  pollers on one DB) (#64).
 
 ### Added
 

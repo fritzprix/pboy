@@ -27,6 +27,12 @@ def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
         return False
 
 
+def suppress_legacy_daemon_hint() -> None:
+    """Skip the one-shot :8080 migration Hint (e.g. after ensure already reused it)."""
+    global _legacy_daemon_hint_emitted
+    _legacy_daemon_hint_emitted = True
+
+
 def _warn_legacy_daemon_if_running() -> None:
     """Hint once per process when a daemon is still listening on :8080."""
     global _legacy_daemon_hint_emitted
