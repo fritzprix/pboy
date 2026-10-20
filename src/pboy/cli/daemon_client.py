@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT
+from pboy.daemon.probe import probe_daemon_alive
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
@@ -17,14 +18,8 @@ DEFAULT_DAEMON_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
 LEGACY_DAEMON_URL = f"http://{DEFAULT_HOST}:8080"
 _legacy_daemon_hint_emitted: bool = False
 
-
-def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
-    """Return True if a Pageboy daemon is responding at ``url/healthz``."""
-    try:
-        res = httpx.get(f"{url.rstrip('/')}/healthz", timeout=timeout)
-        return res.status_code == 200 and res.json().get("service") == "pboy-daemon"
-    except Exception:
-        return False
+# Back-compat alias for tests / callers that patch ``_probe_daemon_alive``.
+_probe_daemon_alive = probe_daemon_alive
 
 
 def suppress_legacy_daemon_hint() -> None:
