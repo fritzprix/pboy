@@ -67,6 +67,7 @@ def test_resolve_daemon_url_hints_legacy_8080(
     from pboy.cli.daemon_client import LEGACY_DAEMON_URL
 
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
 
     def fake_probe(url: str, timeout: float = 0.15) -> bool:
         return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
@@ -78,6 +79,10 @@ def test_resolve_daemon_url_hints_legacy_8080(
     assert LEGACY_DAEMON_URL in err
     assert DEFAULT_DAEMON_URL in err
     assert "--daemon-url" in err
+
+    # Once per process — second resolve must not reprint.
+    assert resolve_daemon_url() is None
+    assert capsys.readouterr().err == ""
 
 
 def test_public_daemon_url_for_loopback_bind() -> None:

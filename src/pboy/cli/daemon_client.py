@@ -13,8 +13,9 @@ from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
 DEFAULT_DAEMON_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
-# Pre-0.x default before the 8080 → 17680 move; probe for migration hints only.
+# Previous default (≤0.3.4) before the 8080 → 17680 move; probe for migration hints only.
 LEGACY_DAEMON_URL = f"http://{DEFAULT_HOST}:8080"
+_legacy_daemon_hint_emitted: bool = False
 
 
 def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
@@ -27,11 +28,13 @@ def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
 
 
 def _warn_legacy_daemon_if_running() -> None:
-    """Hint when a daemon is still listening on the old default port (:8080)."""
-    if DEFAULT_PORT == 8080:
+    """Hint once per process when a daemon is still listening on :8080."""
+    global _legacy_daemon_hint_emitted
+    if _legacy_daemon_hint_emitted or DEFAULT_PORT == 8080:
         return
     if not _probe_daemon_alive(LEGACY_DAEMON_URL):
         return
+    _legacy_daemon_hint_emitted = True
     print(
         f"Hint: a Pageboy daemon is still running at {LEGACY_DAEMON_URL} "
         f"(default is now {DEFAULT_DAEMON_URL}). "
