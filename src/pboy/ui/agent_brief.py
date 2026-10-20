@@ -1,10 +1,12 @@
 """Versioned English agent brief for the dashboard copy-to-clipboard control.
 
-``AGENT_BRIEF`` holds a ``{base_url}`` placeholder; serve it via ``render_agent_brief``
-so the brief names the address the daemon is actually reachable at.
+``AGENT_BRIEF`` holds ``{base_url}`` / ``{default_port}`` placeholders; serve it via
+``render_agent_brief`` so the brief names the address the daemon is reachable at.
 """
 
 from __future__ import annotations
+
+from pboy.core.config import DEFAULT_PORT
 
 AGENT_BRIEF: str = """\
 # Pageboy agent brief
@@ -58,7 +60,7 @@ read-only” from chats/messages/download/export alone.
 - Dashboard/API: `{base_url}` (loopback only; no login). Interactive API docs:
   `{base_url}/docs`.
 - Start UI+daemon: `uvx pboy ui` or `pboy daemon --ui`.
-- CLI auto-connects to a running daemon on the default port (8080). On any other
+- CLI auto-connects to a running daemon on the default port ({default_port}). On any other
   port, pass `--daemon-url {base_url}`.
 - MCP (stdio): `pboy mcp` — tools for list/get events, `reply_event`, hooks,
   `status`, optional `telegram_list_*` App API reads. No event inject / secret
@@ -179,8 +181,10 @@ remote access.
 
 
 def render_agent_brief(base_url: str) -> str:
-    """Return the brief with ``{base_url}`` filled in (no trailing slash)."""
-    return AGENT_BRIEF.replace("{base_url}", base_url.rstrip("/"))
+    """Return the brief with ``{base_url}`` / ``{default_port}`` filled in."""
+    return AGENT_BRIEF.replace("{base_url}", base_url.rstrip("/")).replace(
+        "{default_port}", str(DEFAULT_PORT)
+    )
 
 
 __all__ = ["AGENT_BRIEF", "render_agent_brief"]

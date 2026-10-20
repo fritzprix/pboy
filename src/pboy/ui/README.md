@@ -68,6 +68,6 @@ UI route:
 ## Operator entry
 
 ```bash
-pboy daemon --host 127.0.0.1 --port 8080 --ui
-# http://127.0.0.1:8080/ui
+pboy daemon --host 127.0.0.1 --port 17680 --ui
+# http://127.0.0.1:17680/ui
 ```

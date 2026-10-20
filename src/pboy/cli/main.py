@@ -13,7 +13,8 @@ import typer
 from pydantic import ValidationError
 
 import pboy
-from pboy.cli.daemon_client import DaemonClient, resolve_daemon_url
+from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, DaemonClient, resolve_daemon_url
+from pboy.core.config import DEFAULT_PORT
 from pboy.harness.hook_contract import format_register_contract_hint, render_hook_template
 from pboy.models.hook import HookCreate
 from pboy.store.sqlite import SQLiteStore
@@ -28,7 +29,10 @@ DaemonUrlOption = Annotated[
     typer.Option(
         "--daemon-url",
         "-u",
-        help="Daemon HTTP base URL (auto-connects to http://127.0.0.1:8080 when running; pass for custom port)",
+        help=(
+            f"Daemon HTTP base URL (auto-connects to {DEFAULT_DAEMON_URL} when running; "
+            "pass for custom port)"
+        ),
     ),
 ]
 
@@ -36,7 +40,7 @@ app = typer.Typer(
     name="pboy",
     help=(
         "Zero-Ops Agent Event Orchestrator & Dispatcher.\n\n"
-        "Automatically connects to the local daemon at http://127.0.0.1:8080 when running "
+        f"Automatically connects to the local daemon at {DEFAULT_DAEMON_URL} when running "
         "(use --daemon-url / -u for a custom port; falls back to local SQLite when daemon is stopped).\n\n"
         "Hook subprocesses receive CloudEvent JSON on stdin plus env vars: "
         "PB_EVENT_ID, PB_SOURCE, and PB_HOOK_NAME."
@@ -175,7 +179,7 @@ def _resolve_event_id_or_exit(event_id: str | None) -> str:
 def daemon_cmd(
     ui: Annotated[bool, typer.Option("--ui", help="Start embedded web dashboard")] = False,
     host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
-    port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = 8080,
+    port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = DEFAULT_PORT,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
     """Start local daemon HTTP API (optional ``--ui`` dashboard at ``/ui``)."""
@@ -187,7 +191,7 @@ def daemon_cmd(
 @app.command("ui")
 def ui_cmd(
     host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
-    port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = 8080,
+    port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = DEFAULT_PORT,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
 ) -> None:
     """Launch the daemon with the embedded web dashboard (``/ui`` and ``/ui/settings``).
@@ -289,6 +293,22 @@ def _daemon_client_or_none(subcommand_url: str | None = None) -> DaemonClient | 
     return DaemonClient(url)
 
 
+def _warn_local_store_fallback(*, action: str) -> None:
+    """Warn when a mutating CLI falls back to local SQLite (split-brain risk).
+
+    Skipped when ``PB_DATABASE_URL`` is set — that path intentionally targets a
+    local DB file and never auto-probes the default daemon URL.
+    """
+    if os.environ.get("PB_DATABASE_URL", "").strip():
+        return
+    typer.echo(
+        f"Warning: no daemon at {DEFAULT_DAEMON_URL}; {action} using local SQLite. "
+        "If the daemon is on another port, pass --daemon-url "
+        f"(e.g. -u http://127.0.0.1:<port>) so this write hits the running daemon.",
+        err=True,
+    )
+
+
 # ── Hooks ────────────────────────────────────────────────────────────────────
 @hook_app.command("register")
 def hook_register(
@@ -352,6 +372,8 @@ def hook_register(
             _daemon_http_error(exc)
         typer.echo(format_register_contract_hint(name=hook.name, topic=hook.topic))
         return
+
+    _warn_local_store_fallback(action="hook register")
 
     async def _run(store: SQLiteStore) -> None:
         hook = await store.create_hook(hook_data)
@@ -432,6 +454,8 @@ def hook_delete(
         else:
             typer.echo(f"Hook '{name}' not found.", err=True)
         return
+
+    _warn_local_store_fallback(action="hook delete")
 
     async def _run(store: SQLiteStore) -> None:
         deleted = await store.delete_hook(name)
@@ -1010,6 +1034,8 @@ def channel_enable(
         typer.echo(f"Channel '{body.get('name')}' enabled (running={body.get('running')}).")
         return
 
+    _warn_local_store_fallback(action="channel enable")
+
     async def _run(store: SQLiteStore) -> None:
         from pboy.channels.config import save_enabled_to_store
         from pboy.channels.registry import ChannelRegistry
@@ -1052,6 +1078,8 @@ def channel_disable(
             _daemon_http_error(exc)
         typer.echo(f"Channel '{body.get('name')}' disabled (running={body.get('running')}).")
         return
+
+    _warn_local_store_fallback(action="channel disable")
 
     async def _run(store: SQLiteStore) -> None:
         from pboy.channels.config import load_enabled_from_store, save_enabled_to_store
@@ -1110,6 +1138,8 @@ def channel_set_secret(
             _daemon_http_error(exc)
         typer.echo(f"Stored secret '{body.get('key')}' for channel '{name}'.")
         return
+
+    _warn_local_store_fallback(action="channel set-secret")
 
     async def _run(store: SQLiteStore) -> None:
         await store.put_secret(resolved_key, secret_value.strip())

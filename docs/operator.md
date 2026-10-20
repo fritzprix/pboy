@@ -13,10 +13,10 @@ Do this once end-to-end before debugging anything else.
 
    ```bash
    uvx pboy ui
-   # equivalent: uvx pboy daemon --ui --host 127.0.0.1 --port 8080
+   # equivalent: uvx pboy daemon --ui --host 127.0.0.1 --port 17680
    ```
 
-   Open [http://127.0.0.1:8080/ui](http://127.0.0.1:8080/ui).
+   Open [http://127.0.0.1:17680/ui](http://127.0.0.1:17680/ui).
 
 2. **Bot rail (wake-up)** in `/ui/settings`: paste BotFather token → save → **Enable** →
    pair your chat (or set **Allowlist**) so only authorized chats can trigger hooks.
@@ -74,7 +74,7 @@ Full steps: [`src/pboy/channels/README.md`](../src/pboy/channels/README.md).
 | `uvx pboy daemon` | API only (`/healthz`, `/v1/*`) — no UI |
 | `uvx pboy mcp` | MCP stdio; ensures a daemon is up (spawns background `--ui` if needed, does not stop it) |
 
-Defaults: `--host 127.0.0.1` `--port 8080`. Non-loopback bind is **refused**.
+Defaults: `--host 127.0.0.1` `--port 17680`. Non-loopback bind is **refused**.
 
 Pin a version: `uvx pboy@0.1.0 ui`.
 
@@ -100,7 +100,7 @@ Override DB with `--db` / `PB_DATABASE_URL` if you need an isolated instance.
 
 ### CLI ↔ daemon connection (`--daemon-url` / `-u`)
 
-When the daemon is running on the default address (`http://127.0.0.1:8080`), **the CLI automatically detects and connects to it** (via `/healthz`). When the daemon is stopped, the CLI falls back to the local SQLite DB (`~/.local/share/pboy/pboy.db`).
+When the daemon is running on the default address (`http://127.0.0.1:17680`), **the CLI automatically detects and connects to it** (via `/healthz`). When the daemon is stopped, the CLI falls back to the local SQLite DB (`~/.local/share/pboy/pboy.db`).
 
 If you run the daemon on a custom port, pass `--daemon-url` (`-u`):
 
@@ -156,7 +156,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/uvx pboy ui --host 127.0.0.1 --port 8080
+ExecStart=%h/.local/bin/uvx pboy ui --host 127.0.0.1 --port 17680
 Restart=on-failure
 RestartSec=5
 
@@ -178,7 +178,7 @@ multi-user host you do not trust. See [`security-contract.md`](security-contract
 
 ```bash
 uvx pboy status
-# or: curl -s http://127.0.0.1:8080/healthz
+# or: curl -s http://127.0.0.1:17680/healthz
 # channels.running should list enabled adapters (e.g. "telegram")
 ```
 
@@ -219,7 +219,7 @@ uvx pboy status
 | UI empty, CLI `event list` has rows | Same |
 | Channel enabled in CLI, `/healthz` not running it | Enable hit local store while daemon was stopped (or on custom port without `--daemon-url`) |
 
-Fix: run the daemon on the default port (`8080`) so CLI auto-connects, or pass `--daemon-url http://127.0.0.1:<port>` when using a custom port.
+Fix: run the daemon on the default port (`17680`) so CLI auto-connects, or pass `--daemon-url http://127.0.0.1:<port>` when using a custom port. Mutating CLI commands (`hook register`/`delete`, `channel enable`/`disable`/`set-secret`) print a warning when they fall back to local SQLite because no daemon answered on the default URL.
 
 ### HTTP 403 / cannot reach UI or API
 
@@ -231,7 +231,7 @@ There is **no** auth token and **no** HTTP 401 login flow.
 | Connection refused | Daemon not running or wrong port |
 | Bind error at startup | Tried `--host 0.0.0.0` or a LAN address — only loopback is allowed |
 
-Use `http://127.0.0.1:8080` (or `localhost`) from the **same machine**. Do not reverse-proxy.
+Use `http://127.0.0.1:17680` (or `localhost`) from the **same machine**. Do not reverse-proxy.
 
 ### Auth / “token” confusion
 
