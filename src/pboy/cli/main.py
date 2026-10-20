@@ -294,7 +294,13 @@ def _daemon_client_or_none(subcommand_url: str | None = None) -> DaemonClient | 
 
 
 def _warn_local_store_fallback(*, action: str) -> None:
-    """Warn when a mutating CLI falls back to local SQLite (split-brain risk)."""
+    """Warn when a mutating CLI falls back to local SQLite (split-brain risk).
+
+    Skipped when ``PB_DATABASE_URL`` is set — that path intentionally targets a
+    local DB file and never auto-probes the default daemon URL.
+    """
+    if os.environ.get("PB_DATABASE_URL", "").strip():
+        return
     typer.echo(
         f"Warning: no daemon at {DEFAULT_DAEMON_URL}; {action} using local SQLite. "
         "If the daemon is on another port, pass --daemon-url "

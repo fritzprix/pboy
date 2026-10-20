@@ -346,3 +346,60 @@ def test_cli_hook_register_warns_on_local_sqlite_fallback(
     assert DEFAULT_DAEMON_URL in res.output
     assert "--daemon-url" in res.output
 
+
+def test_cli_channel_enable_warns_on_local_sqlite_fallback(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    import pboy.cli.daemon_client as dc_mod
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    cfg = Settings(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data", secret_key="cli-ch-warn")
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    res = cli_runner.invoke(cli_main.app, ["channel", "enable", "telegram"])
+    assert res.exit_code == 0, res.output
+    assert "Warning: no daemon at" in res.output
+    assert DEFAULT_DAEMON_URL in res.output
+
+
+def test_cli_hook_register_skips_warn_when_pb_database_url_set(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    import pboy.cli.daemon_client as dc_mod
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
+    db_path = tmp_path / "explicit.db"
+    monkeypatch.setenv("PB_DATABASE_URL", str(db_path))
+    cfg = Settings(
+        config_dir=tmp_path / "cfg",
+        data_dir=tmp_path / "data",
+        secret_key="cli-db-url",
+        database_url=str(db_path),
+    )
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    res = cli_runner.invoke(
+        cli_main.app,
+        [
+            "hook",
+            "register",
+            "--name",
+            "db-url-hook",
+            "--topic",
+            "telegram:message",
+            "--exec",
+            "echo 1",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert "Warning: no daemon at" not in res.output
+
