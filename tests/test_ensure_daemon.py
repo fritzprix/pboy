@@ -15,13 +15,16 @@ import uvicorn
 from typer.testing import CliRunner
 
 import pboy.core.config as config_mod
+from pboy.cli.daemon_client import DEFAULT_DAEMON_URL
 from pboy.cli.main import app
+from pboy.core.config import DEFAULT_PORT
 from pboy.daemon.app import create_app
 from pboy.daemon.ensure import (
     EnsureDaemonError,
     EnsureDaemonResult,
     daemon_base_url,
     ensure_daemon,
+    ensure_daemon_url,
     parse_daemon_url,
     probe_daemon,
 )
@@ -185,3 +188,26 @@ def test_mcp_ensures_then_runs_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
     assert res.exit_code == 0
     assert ran == ["http://127.0.0.1:18080"]
     assert "Started Pageboy daemon" in (res.stderr or res.output)
+
+
+def test_ensure_daemon_url_reuses_legacy_8080_instead_of_spawn(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    if DEFAULT_PORT == 8080:
+        pytest.skip("legacy attach only applies when default port is not 8080")
+
+    legacy_url = daemon_base_url("127.0.0.1", 8080)
+    spawn = MagicMock()
+    monkeypatch.setattr("pboy.daemon.ensure._spawn_daemon", spawn)
+
+    def fake_probe(url: str, *, timeout: float = 0.3) -> bool:
+        return url.rstrip("/") == legacy_url.rstrip("/")
+
+    monkeypatch.setattr("pboy.daemon.ensure.probe_daemon", fake_probe)
+    result = ensure_daemon_url(None)
+    assert result == EnsureDaemonResult(url=legacy_url, started=False)
+    spawn.assert_not_called()
+    err = capsys.readouterr().err
+    assert "Reusing legacy" in err
+    assert legacy_url in err
+    assert DEFAULT_DAEMON_URL in err
