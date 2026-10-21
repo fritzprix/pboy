@@ -59,13 +59,17 @@ read-only” from chats/messages/download/export alone.
 
 - Dashboard/API: `{base_url}` (loopback only; no login). Interactive API docs:
   `{base_url}/docs`.
-- Start UI+daemon: `uvx pboy ui` or `pboy daemon --ui`.
-- CLI auto-connects to a running daemon on the default port ({default_port}). On any other
-  port, pass `--daemon-url {base_url}`.
+- Start: `uvx pboy ui` or `pboy daemon --ui` (default port ({default_port})).
+- Stop: `pboy daemon stop` (graceful shutdown verified by instance token).
+- CLI auto-discovers a running daemon via runtime file + OS lock (no flags needed,
+  even on custom ports). Explicit `--daemon-url {base_url}` overrides.
 - MCP (stdio): `pboy mcp` — tools for list/get events, `reply_event`, hooks,
   `status`, optional `telegram_list_*` App API reads. No event inject / secret
   writes. Starts the local daemon in the background if needed and leaves it
   running when MCP exits.
+- Only one daemon can run per data directory (enforced by OS lock on runtime file).
+- **Upgrade from 0.4.x:** If 0.5.0+ detects a legacy daemon (0.4.x without runtime
+  file), all commands exit with an error and platform-specific manual stop guidance.
 - Do not reverse-proxy the daemon or bind non-loopback hosts.
 
 ## Telegram: two separate rails (do not conflate)

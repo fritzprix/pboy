@@ -283,82 +283,52 @@ def test_run_daemon_exits_on_non_loopback_bind(
 def test_run_daemon_logs_ui_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from loguru import logger
 
+    import pboy.core.config as config_mod
     from pboy.daemon import server as server_mod
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config_mod, "_settings", None)
 
     logs: list[str] = []
     sink_id = logger.add(lambda msg: logs.append(str(msg)), format="{message}")
     try:
         monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
-        monkeypatch.setattr(server_mod, "probe_daemon_alive", lambda *_a, **_k: False)
-        server_mod.run_daemon(host="127.0.0.1", port=8080, db=tmp_path / "d.db", ui=True)
-        assert any("UI URL: http://127.0.0.1:8080/ui" in msg for msg in logs)
+        server_mod.run_daemon(host="127.0.0.1", port=17680, db=tmp_path / "d.db", ui=True)
+        assert any("UI URL: http://127.0.0.1:17680/ui" in msg for msg in logs)
     finally:
         logger.remove(sink_id)
 
 
-def test_run_daemon_refuses_when_legacy_8080_also_running(
+def test_run_daemon_refuses_when_lock_held(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Starting on default port while :8080 daemon runs must refuse (prevents double-polling)."""
-    from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, LEGACY_DAEMON_URL
-    from pboy.core.config import DEFAULT_PORT
+    """Second daemon cannot start when runtime file lock is held."""
     from pboy.daemon import server as server_mod
+    from pboy.daemon.runtime import DaemonRuntimeFile
 
-    if DEFAULT_PORT == 8080:
-        pytest.skip("legacy conflict check only applies when default port is not 8080")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
-    monkeypatch.setattr(
-        server_mod,
-        "probe_daemon_alive",
-        lambda url, timeout=0.15: url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/"),
-    )
+    monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
 
-    with pytest.raises(SystemExit) as exc_info:
-        server_mod.run_daemon(
-            host="127.0.0.1", port=DEFAULT_PORT, db=tmp_path / "d.db", ui=False
-        )
+    import pboy.core.config as config_mod
+    monkeypatch.setattr(config_mod, "_settings", None)
 
-    assert exc_info.value.code == 1
-    err = capsys.readouterr().err
-    assert "Error:" in err
-    assert LEGACY_DAEMON_URL in err
-    assert DEFAULT_DAEMON_URL in err
-    assert "double-poll" in err
-    # Verify all suggested commands are valid
-    assert "pboy daemon" in err
-    assert f"{LEGACY_DAEMON_URL}/ui" in err
-    assert "--allow-dual-daemon" in err
-    # Must NOT suggest starting another daemon on :8080 (would fail with address-in-use)
-    assert "--port 8080" not in err
+    runtime = DaemonRuntimeFile(data_dir)
 
+    with runtime.acquire_exclusive():
+        with pytest.raises(SystemExit) as exc_info:
+            server_mod.run_daemon(
+                host="127.0.0.1", port=17680, db=tmp_path / "d.db", ui=False
+            )
 
-def test_run_daemon_allows_dual_with_explicit_flag(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """--allow-dual-daemon must override the conflict check."""
-    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
-    from pboy.core.config import DEFAULT_PORT
-    from pboy.daemon import server as server_mod
-
-    if DEFAULT_PORT == 8080:
-        pytest.skip("legacy conflict check only applies when default port is not 8080")
-
-    monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
-    monkeypatch.setattr(
-        server_mod,
-        "probe_daemon_alive",
-        lambda url, timeout=0.15: url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/"),
-    )
-
-    # Should not raise
-    server_mod.run_daemon(
-        host="127.0.0.1", port=DEFAULT_PORT, db=tmp_path / "d.db", ui=False, allow_dual_daemon=True
-    )
-
-    err = capsys.readouterr().err
-    # Should not print error
-    assert "Error:" not in err
+        assert exc_info.value.code == 1
+        err = capsys.readouterr().err
+        assert "lock held" in err
 
 
 @pytest.mark.asyncio

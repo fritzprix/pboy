@@ -19,13 +19,10 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from pboy.cli.daemon_client import (
-    DEFAULT_DAEMON_URL,
-    LEGACY_DAEMON_URL,
-    suppress_legacy_daemon_hint,
-)
+from pboy.cli.daemon_client import DEFAULT_DAEMON_URL
 from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT, get_settings
 from pboy.core.probe import probe_daemon_alive
+from pboy.daemon.runtime import DaemonRuntimeFile
 from pboy.daemon.server import _public_daemon_url, assert_loopback_bind
 
 
@@ -105,36 +102,38 @@ def ensure_daemon_url(
     ui: bool = True,
     wait_seconds: float = 30.0,
 ) -> EnsureDaemonResult:
-    """Ensure daemon at ``daemon_url`` or the default loopback URL.
-
-    When no explicit URL is given and the default port is not already serving,
-    a leftover daemon on the previous default port (:8080) is reused instead of
-    spawning a second process (avoids dual Telegram pollers on one DB).
-    """
+    """Ensure daemon at ``daemon_url`` or discover via runtime file."""
     if daemon_url and daemon_url.strip():
         host, port = parse_daemon_url(daemon_url)
     else:
-        host, port = DEFAULT_HOST, DEFAULT_PORT
-        # Match CLI default when settings override port.
         settings = get_settings()
+        runtime = DaemonRuntimeFile(settings.data_dir)
+        info = runtime.read_if_alive()
+
+        if info:
+            try:
+                import httpx
+                res = httpx.get(f"{info.base_url}/healthz", timeout=0.5)
+                if res.status_code == 200:
+                    body = res.json()
+                    if body.get("service") == "pboy-daemon":
+                        token = body.get("instance_token", "")
+                        if token == info.instance_token:
+                            return EnsureDaemonResult(url=info.base_url, started=False)
+            except Exception:
+                pass
+
+        # No valid runtime file daemon → check for legacy daemon (upgrade path)
+        from pboy.daemon.legacy import probe_legacy_ports, raise_legacy_daemon_error
+
+        legacy_info = probe_legacy_ports()
+        if legacy_info:
+            raise_legacy_daemon_error(legacy_info)
+
+        host, port = DEFAULT_HOST, DEFAULT_PORT
         host = settings.host or host
         port = settings.port if settings.port else port
-        if (
-            port == DEFAULT_PORT
-            and DEFAULT_DAEMON_URL != LEGACY_DAEMON_URL
-            and not probe_daemon(daemon_base_url(host, port))
-            and probe_daemon(LEGACY_DAEMON_URL)
-        ):
-            msg = (
-                f"Reusing legacy Pageboy daemon at {LEGACY_DAEMON_URL} "
-                f"(default is now {DEFAULT_DAEMON_URL}); not spawning a second "
-                f"daemon on port {DEFAULT_PORT}. Restart on {DEFAULT_PORT} when ready."
-            )
-            logger.warning("{}", msg)
-            print(msg, file=sys.stderr)
-            # Avoid a second stderr line from resolve_daemon_url's migration Hint.
-            suppress_legacy_daemon_hint()
-            return EnsureDaemonResult(url=LEGACY_DAEMON_URL, started=False)
+
     return ensure_daemon(
         host=host, port=port, db=db, ui=ui, wait_seconds=wait_seconds
     )

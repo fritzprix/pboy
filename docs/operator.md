@@ -65,18 +65,24 @@ Full steps: [`src/pboy/channels/README.md`](../src/pboy/channels/README.md).
 
 ## Deploy / runbook
 
-### Start
+### Start / Stop
 
 | Command | What it does |
 |---------|----------------|
 | `uvx pboy ui` | Daemon + dashboard at `/ui` (recommended). If already running, print URL and exit |
+| `uvx pboy daemon` | API only (`/healthz`, `/v1/*`) — no UI (also accepts `pboy daemon start`) |
 | `uvx pboy daemon --ui` | Same as first-time `ui`, explicit flags (foreground) |
-| `uvx pboy daemon` | API only (`/healthz`, `/v1/*`) — no UI |
+| `uvx pboy daemon stop` | Stop the running daemon gracefully (verified by instance token) |
+| `uvx pboy daemon stop --force` | Force stop with SIGTERM if graceful shutdown times out |
 | `uvx pboy mcp` | MCP stdio; ensures a daemon is up (spawns background `--ui` if needed, does not stop it) |
 
 Defaults: `--host 127.0.0.1` `--port 17680`. Non-loopback bind is **refused**.
 
 Pin a version: `uvx pboy@0.1.0 ui`.
+
+The daemon writes a runtime file (`~/.local/share/pboy/daemon.json`) with an OS lock. Only one daemon can run per data directory. Clients discover the daemon via this file + lock verification + `/healthz` instance token.
+
+**Upgrading from 0.4.x:** When 0.5.0+ detects a legacy daemon (0.4.x or earlier) without a runtime file, it prevents split-brain scenarios by refusing to start a second daemon. All commands exit with an error and platform-specific manual stop guidance (find the process listening on the old port, verify it's pboy, then stop it).
 
 ### Data locations
 
@@ -100,15 +106,21 @@ Override DB with `--db` / `PB_DATABASE_URL` if you need an isolated instance.
 
 ### CLI ↔ daemon connection (`--daemon-url` / `-u`)
 
-When the daemon is running on the default address (`http://127.0.0.1:17680`), **the CLI automatically detects and connects to it** (via `/healthz`). When the daemon is stopped, the CLI falls back to the local SQLite DB (`~/.local/share/pboy/pboy.db`).
+**The CLI automatically discovers and connects to a running daemon** without any flags. Discovery order:
 
-If you run the daemon on a custom port, pass `--daemon-url` (`-u`):
+1. Explicit `--daemon-url` / `-u` (highest priority)
+2. `PB_DATABASE_URL` env var → local SQLite (skips daemon)
+3. Runtime file in `~/.local/share/pboy/daemon.json` → verify lock held + `/healthz` instance token matches
+4. No daemon running → local SQLite DB (`~/.local/share/pboy/pboy.db`)
+
+Custom port example:
 
 ```bash
-uvx pboy --daemon-url http://127.0.0.1:9000 status
+uvx pboy daemon --port 9000 &
+uvx pboy status  # auto-discovers via runtime file, no --daemon-url needed
 ```
 
-If the daemon runs on a custom port or isolated DB (`--db`) and you run the CLI **without** `--daemon-url`, the CLI opens the default local SQLite DB instead of talking to that daemon (**split-brain**).
+Split-brain only happens if you use `PB_DATABASE_URL` pointing to a different DB while the daemon runs on the default DB.
 
 ### MCP (agents)
 
@@ -219,9 +231,7 @@ uvx pboy status
 | UI empty, CLI `event list` has rows | Same |
 | Channel enabled in CLI, `/healthz` not running it | Enable hit local store while daemon was stopped (or on custom port without `--daemon-url`) |
 
-Fix: run the daemon on the default port (`17680`) so CLI auto-connects, or pass `--daemon-url http://127.0.0.1:<port>` when using a custom port.
-
-After the default port moved from `8080` → `17680`, the CLI automatically reuses a daemon still bound to `:8080` (with a one-time notice). Restart the daemon on `17680` when ready. Starting a new daemon on the default port while a `:8080` daemon is running will refuse with an error (prevents double-polling channels on a shared DB); use `--allow-dual-daemon` to override for testing.
+Fix: ensure the daemon is running on the expected data directory, or pass `--daemon-url` to override discovery.
 
 ### HTTP 403 / cannot reach UI or API
 

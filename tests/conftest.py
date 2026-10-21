@@ -39,6 +39,11 @@ async def tmp_store() -> AsyncGenerator[SQLiteStore, None]:
         await store.init_db()
         yield store
         await store.close()
+        # Give Windows time to release file handles
+        import sys
+        if sys.platform == "win32":
+            import time
+            time.sleep(0.1)
 
 
 @pytest_asyncio.fixture

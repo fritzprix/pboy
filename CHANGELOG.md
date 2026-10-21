@@ -17,34 +17,29 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 **Release process:** see [`docs/releasing.md`](docs/releasing.md).  
 **Alpha classifiers** stay until an explicit decision to leave Alpha (not tied to the first PyPI publish).
 
-## [0.4.1] — Unreleased
+## [Unreleased] — 0.5.0
+
+**Breaking changes:** Port-based daemon discovery has been replaced with a runtime file using OS locks. The legacy `:8080` migration shims from 0.4.1 have been removed.
+
+**Upgrade from 0.4.x:** When 0.5.0+ detects a legacy daemon (0.4.x or earlier) without a runtime file, it blocks split-brain scenarios by refusing to fall back to SQLite or start a second daemon. All commands exit with an error and platform-specific manual stop guidance (find the process listening on the old port, verify it's pboy, then stop it).
+
+### Added
+
+- **Runtime file-based daemon discovery** (#74): The daemon now writes a `daemon.json` file in the data directory and holds an exclusive OS lock (`fcntl.flock` on POSIX, `msvcrt.locking` on Windows) for its lifetime. Clients discover the daemon by reading this file and verifying the lock is still held plus the `/healthz` instance token matches. Liveness is decided by the OS lock, not file existence, so crash/power-loss scenarios work correctly.
+- **`pboy daemon stop` command** (#74): Gracefully stop the running daemon with token-verified shutdown. Waits for the lock to be released; `--force` sends SIGTERM to the verified PID if graceful shutdown times out.
+- **Instance token in `/healthz`** (#74): The daemon now returns a per-start `instance_token` in the `/healthz` response (loopback-only). Clients verify this token matches the runtime file to prevent connecting to stale daemons after a restart.
+- **`/v1/daemon/shutdown` endpoint** (#74): Loopback-only graceful shutdown endpoint requiring the instance token for authentication.
+- **Legacy daemon detection** (#74): When no valid runtime file exists, 0.5.0+ checks the old default ports (8080, 17680) for a running 0.4.x daemon. If found, it blocks split-brain scenarios by refusing to fall back to SQLite or start a second daemon. All commands exit with an error and platform-specific manual stop guidance.
 
 ### Changed
 
-- Default daemon port is now `17680` (was `8080`) to avoid clashes with common
-  local HTTP stacks. CLI auto-probe, `pboy ui`, and `pboy daemon` defaults follow
-  the same port (`PB_PORT` / `--port` still override). Migration: when a daemon is
-  still listening on `:8080`, the CLI and `pboy mcp` / `pboy ui` automatically
-  reuse it (with a one-time notice) instead of spawning a second process or falling
-  back to local SQLite. Restart the daemon on `17680` when ready (#62, #73).
-- Health probe for a live daemon is now public `pboy.core.probe.probe_daemon_alive`
-  (CLI / ensure share it; daemon layer no longer needs a private CLI import) (#68).
-- `pboy daemon` / `pboy ui` refuse to start on the new default port when a legacy
-  `:8080` daemon is already running (prevents shared DB / double channel polling).
-  Use `--allow-dual-daemon` to override (testing only) (#66, #73).
+- **Discovery order** (#74): Explicit `--daemon-url` > `PB_DATABASE_URL` env var > runtime file + lock + token check > None. Port probing has been removed entirely.
+- **Second daemon on same data dir refuses to start** (#74): The runtime file lock prevents dual daemons from running on the same database, avoiding double channel polling without requiring port conflict checks.
+- **`pboy daemon` is now a subcommand group** (#74): `pboy daemon` without arguments still starts the daemon (backward compatible), but `pboy daemon start` and `pboy daemon stop` are now available as explicit subcommands.
 
-### Fixed
+### Removed
 
-- **Critical**: CLI commands (`hook register`/`delete`, `channel enable`/`disable`/
-  `set-secret`) now automatically connect to a legacy `:8080` daemon when the default
-  port is not serving, preventing silent split-brain where writes land in local SQLite
-  while the daemon runs on the old port. Explicit `--daemon-url` and `PB_DATABASE_URL`
-  still take precedence (#60, #73).
-- `ensure_daemon_url` / `pboy mcp` reuse a leftover daemon on `:8080` instead of
-  spawning a second process on the new default port (avoids dual channel
-  pollers on one DB) (#64).
-- `pboy.daemon` no longer eagerly imports `create_app` (lazy `__getattr__`), so
-  importing daemon submodules does not load the FastAPI stack (#70).
+- **Legacy `:8080` migration shims** (#68): Removed `LEGACY_DAEMON_URL`, `suppress_legacy_daemon_hint()`, the ensure reuse branch, dual-daemon conflict check, and `--allow-dual-daemon` flag. These were temporary migration helpers from the 0.4.0 → 0.4.1 port change and are no longer needed with runtime file discovery.
 
 ## [0.4.0] — 2026-10-18
 
