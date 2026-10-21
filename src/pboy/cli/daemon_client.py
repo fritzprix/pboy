@@ -28,18 +28,16 @@ def suppress_legacy_daemon_hint() -> None:
     _legacy_daemon_hint_emitted = True
 
 
-def _warn_legacy_daemon_if_running() -> None:
-    """Hint once per process when a daemon is still listening on :8080."""
+def _notify_legacy_daemon_reuse() -> None:
+    """Print a one-time notice when the CLI reuses a legacy :8080 daemon."""
     global _legacy_daemon_hint_emitted
     if _legacy_daemon_hint_emitted or DEFAULT_PORT == 8080:
         return
-    if not _probe_daemon_alive(LEGACY_DAEMON_URL):
-        return
     _legacy_daemon_hint_emitted = True
     print(
-        f"Hint: a Pageboy daemon is still running at {LEGACY_DAEMON_URL} "
+        f"Notice: connecting to Pageboy daemon at {LEGACY_DAEMON_URL} "
         f"(default is now {DEFAULT_DAEMON_URL}). "
-        f"Pass --daemon-url {LEGACY_DAEMON_URL} or restart the daemon on port {DEFAULT_PORT}.",
+        f"Restart the daemon on port {DEFAULT_PORT} to use the new default.",
         file=sys.stderr,
     )
 
@@ -49,7 +47,12 @@ def resolve_daemon_url(
     *,
     auto_probe: bool = True,
 ) -> str | None:
-    """Return explicit ``--daemon-url``, or auto-probe the default daemon URL if running."""
+    """Return explicit ``--daemon-url``, or auto-probe the default daemon URL if running.
+
+    When the default port is not serving and a legacy :8080 daemon is found, returns
+    the legacy URL (with a one-time notice) to prevent split-brain: CLI writes must
+    reach the same store as the running daemon.
+    """
     if cli_url and cli_url.strip():
         return cli_url.strip().rstrip("/")
     if not auto_probe:
@@ -59,7 +62,10 @@ def resolve_daemon_url(
         return None
     if _probe_daemon_alive(DEFAULT_DAEMON_URL):
         return DEFAULT_DAEMON_URL
-    _warn_legacy_daemon_if_running()
+    # Reuse legacy :8080 daemon to avoid split-brain (consistent with ensure_daemon_url).
+    if DEFAULT_PORT != 8080 and _probe_daemon_alive(LEGACY_DAEMON_URL):
+        _notify_legacy_daemon_reuse()
+        return LEGACY_DAEMON_URL
     return None
 
 

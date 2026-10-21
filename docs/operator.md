@@ -219,9 +219,9 @@ uvx pboy status
 | UI empty, CLI `event list` has rows | Same |
 | Channel enabled in CLI, `/healthz` not running it | Enable hit local store while daemon was stopped (or on custom port without `--daemon-url`) |
 
-Fix: run the daemon on the default port (`17680`) so CLI auto-connects, or pass `--daemon-url http://127.0.0.1:<port>` when using a custom port. Mutating CLI commands (`hook register`/`delete`, `channel enable`/`disable`/`set-secret`) print a warning when they fall back to local SQLite because no daemon answered on the default URL.
+Fix: run the daemon on the default port (`17680`) so CLI auto-connects, or pass `--daemon-url http://127.0.0.1:<port>` when using a custom port.
 
-After the default port moved from `8080` → `17680`, a daemon still bound to `:8080` is **not** auto-connected. The CLI probes `:8080` once and prints a stderr hint to pass `--daemon-url http://127.0.0.1:8080` or restart on `17680`.
+After the default port moved from `8080` → `17680`, the CLI automatically reuses a daemon still bound to `:8080` (with a one-time notice). Restart the daemon on `17680` when ready. Starting a new daemon on the default port while a `:8080` daemon is running will refuse with an error (prevents double-polling channels on a shared DB); use `--allow-dual-daemon` to override for testing.
 
 ### HTTP 403 / cannot reach UI or API
 

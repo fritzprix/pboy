@@ -181,11 +181,18 @@ def daemon_cmd(
     host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = DEFAULT_PORT,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
+    allow_dual_daemon: Annotated[
+        bool,
+        typer.Option(
+            "--allow-dual-daemon",
+            help="Allow starting on default port while :8080 daemon runs (testing only)",
+        ),
+    ] = False,
 ) -> None:
     """Start local daemon HTTP API (optional ``--ui`` dashboard at ``/ui``)."""
     from pboy.daemon.server import run_daemon
 
-    run_daemon(host=host, port=port, db=db, ui=ui)
+    run_daemon(host=host, port=port, db=db, ui=ui, allow_dual_daemon=allow_dual_daemon)
 
 
 @app.command("ui")
@@ -193,6 +200,13 @@ def ui_cmd(
     host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = DEFAULT_PORT,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
+    allow_dual_daemon: Annotated[
+        bool,
+        typer.Option(
+            "--allow-dual-daemon",
+            help="Allow starting on default port while :8080 daemon runs (testing only)",
+        ),
+    ] = False,
 ) -> None:
     """Launch the daemon with the embedded web dashboard (``/ui`` and ``/ui/settings``).
 
@@ -206,7 +220,7 @@ def ui_cmd(
     if probe_daemon(url):
         typer.echo(f"Daemon already running at {url}/ui")
         raise typer.Exit(code=0)
-    run_daemon(host=host, port=port, db=db, ui=True)
+    run_daemon(host=host, port=port, db=db, ui=True, allow_dual_daemon=allow_dual_daemon)
 
 
 @app.command("mcp")

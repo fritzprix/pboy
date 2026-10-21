@@ -217,6 +217,7 @@ def test_ensure_daemon_url_reuses_legacy_8080_instead_of_spawn(
     assert DEFAULT_DAEMON_URL in err
     assert "Hint:" not in err
 
-    # Subsequent resolve must not print the migration Hint again.
-    assert resolve_daemon_url() is None
-    assert "Hint:" not in capsys.readouterr().err
+    # Subsequent resolve must also return the legacy URL (consistent with ensure).
+    assert resolve_daemon_url() == LEGACY_DAEMON_URL
+    # Notice was already printed by ensure, so no duplicate output.
+    assert capsys.readouterr().err == ""

@@ -36,20 +36,30 @@ def _public_daemon_url(host: str, port: int) -> str:
     return f"http://{h}:{port}"
 
 
-def _warn_if_legacy_daemon_also_running(port: int) -> None:
-    """Warn when starting on the new default while a :8080 daemon still shares the DB."""
+def _check_legacy_daemon_conflict(port: int, *, allow_dual: bool = False) -> None:
+    """Refuse to start on the new default port while a :8080 daemon is already running.
+
+    Prevents dual channel pollers on a shared SQLite DB. Use ``--allow-dual-daemon``
+    to override (e.g. when testing with separate DBs).
+    """
     if port != DEFAULT_PORT or DEFAULT_DAEMON_URL == LEGACY_DAEMON_URL:
+        return
+    if allow_dual:
         return
     if not probe_daemon_alive(LEGACY_DAEMON_URL):
         return
     msg = (
-        f"Warning: a Pageboy daemon is already running at {LEGACY_DAEMON_URL} "
-        f"while starting on {DEFAULT_DAEMON_URL}. Both may share one SQLite DB and "
-        f"double-poll channels (e.g. Telegram). Stop the :8080 process or use "
-        f"--daemon-url {LEGACY_DAEMON_URL} instead of starting a second daemon."
+        f"Error: a Pageboy daemon is already running at {LEGACY_DAEMON_URL}. "
+        f"Starting a second daemon on {DEFAULT_DAEMON_URL} would cause both to share "
+        f"one SQLite DB and double-poll channels (e.g. Telegram, Slack).\n\n"
+        f"Solutions:\n"
+        f"  1. Stop the :8080 daemon and restart this one: pboy daemon\n"
+        f"  2. Connect to the :8080 daemon: pboy ui --daemon-url {LEGACY_DAEMON_URL}\n"
+        f"  3. Override this check (testing only): pboy daemon --allow-dual-daemon"
     )
-    logger.warning("{}", msg)
+    logger.error("{}", msg)
     print(msg, file=sys.stderr)
+    raise SystemExit(1)
 
 
 def run_daemon(
@@ -58,6 +68,7 @@ def run_daemon(
     port: int | None = None,
     db: str | Path | None = None,
     ui: bool = False,
+    allow_dual_daemon: bool = False,
 ) -> None:
     """Start the daemon HTTP server (blocking)."""
     settings = get_settings()
@@ -71,7 +82,7 @@ def run_daemon(
     from pboy.channels.env_contract import warn_removed_channel_env_vars
 
     warn_removed_channel_env_vars()
-    _warn_if_legacy_daemon_also_running(actual_port)
+    _check_legacy_daemon_conflict(actual_port, allow_dual=allow_dual_daemon)
     public_url = _public_daemon_url(actual_host, actual_port)
     ui_url = f"{public_url}/ui"
     app = create_app(db_path=db, enable_ui=ui, public_url=public_url)
