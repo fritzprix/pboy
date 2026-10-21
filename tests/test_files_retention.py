@@ -79,7 +79,7 @@ def test_prune_skips_fresh_empty_dir_and_outside_symlink(tmp_path: Path) -> None
     past = now - 10_000
     os.utime(fresh_empty, (now, now))
     os.utime(old_empty, (past, past))
-    
+
     # On Windows, we can't set symlink mtime (follow_symlinks unsupported), so skip symlink test
     can_set_symlink_mtime = os.utime in os.supports_follow_symlinks
     if can_set_symlink_mtime:
@@ -91,7 +91,7 @@ def test_prune_skips_fresh_empty_dir_and_outside_symlink(tmp_path: Path) -> None
     assert fresh_empty.is_dir()
     assert not old_empty.exists()
     assert result.removed_dirs == 1
-    
+
     if can_set_symlink_mtime:
         # Symlink itself is removed by age; target outside files_root is untouched.
         assert not link.exists()
