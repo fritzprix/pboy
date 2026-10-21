@@ -3,43 +3,19 @@
 from __future__ import annotations
 
 import os
-import sys
 from typing import Any
 
 import httpx
 
-from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT
+from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT, get_settings
 from pboy.core.probe import probe_daemon_alive
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
 DEFAULT_DAEMON_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
-# Previous default (≤0.3.4) before the 8080 → 17680 move; probe for migration hints only.
-LEGACY_DAEMON_URL = f"http://{DEFAULT_HOST}:8080"
-_legacy_daemon_hint_emitted: bool = False
 
 # Back-compat alias for tests / callers that patch `_probe_daemon_alive`.
 _probe_daemon_alive = probe_daemon_alive
-
-
-def suppress_legacy_daemon_hint() -> None:
-    """Skip the one-shot :8080 migration Hint (e.g. after ensure already reused it)."""
-    global _legacy_daemon_hint_emitted
-    _legacy_daemon_hint_emitted = True
-
-
-def _notify_legacy_daemon_reuse() -> None:
-    """Print a one-time notice when the CLI reuses a legacy :8080 daemon."""
-    global _legacy_daemon_hint_emitted
-    if _legacy_daemon_hint_emitted or DEFAULT_PORT == 8080:
-        return
-    _legacy_daemon_hint_emitted = True
-    print(
-        f"Notice: connecting to Pageboy daemon at {LEGACY_DAEMON_URL} "
-        f"(default is now {DEFAULT_DAEMON_URL}). "
-        f"Restart the daemon on port {DEFAULT_PORT} to use the new default.",
-        file=sys.stderr,
-    )
 
 
 def resolve_daemon_url(
@@ -47,11 +23,13 @@ def resolve_daemon_url(
     *,
     auto_probe: bool = True,
 ) -> str | None:
-    """Return explicit ``--daemon-url``, or auto-probe the default daemon URL if running.
+    """Return explicit ``--daemon-url``, or discover via runtime file, or None.
 
-    When the default port is not serving and a legacy :8080 daemon is found, returns
-    the legacy URL (with a one-time notice) to prevent split-brain: CLI writes must
-    reach the same store as the running daemon.
+    Discovery order:
+    1. Explicit ``--daemon-url`` wins
+    2. ``PB_DATABASE_URL`` env var → None (targets a specific local DB)
+    3. Runtime file in data dir → verify lock + /healthz token
+    4. None (no daemon running)
     """
     if cli_url and cli_url.strip():
         return cli_url.strip().rstrip("/")
@@ -60,12 +38,26 @@ def resolve_daemon_url(
     # If an explicit PB_DATABASE_URL is set, the caller targets a specific local DB file.
     if os.environ.get("PB_DATABASE_URL", "").strip():
         return None
-    if _probe_daemon_alive(DEFAULT_DAEMON_URL):
-        return DEFAULT_DAEMON_URL
-    # Reuse legacy :8080 daemon to avoid split-brain (consistent with ensure_daemon_url).
-    if DEFAULT_PORT != 8080 and _probe_daemon_alive(LEGACY_DAEMON_URL):
-        _notify_legacy_daemon_reuse()
-        return LEGACY_DAEMON_URL
+    
+    from pboy.daemon.runtime import DaemonRuntimeFile
+    
+    settings = get_settings()
+    runtime = DaemonRuntimeFile(settings.data_dir)
+    info = runtime.read_if_alive()
+    if not info:
+        return None
+    
+    try:
+        res = httpx.get(f"{info.base_url}/healthz", timeout=0.5)
+        if res.status_code == 200:
+            body = res.json()
+            if body.get("service") == "pboy-daemon":
+                token = body.get("instance_token", "")
+                if token == info.instance_token:
+                    return info.base_url
+    except Exception:
+        pass
+    
     return None
 
 
@@ -247,6 +239,17 @@ class DaemonClient:
             "POST",
             "/v1/events",
             json={"source": source, "payload": payload, "dispatch": dispatch},
+        )
+        response.raise_for_status()
+        body: dict[str, Any] = response.json()
+        return body
+
+    def shutdown(self, instance_token: str) -> dict[str, Any]:
+        """Request graceful daemon shutdown with token verification."""
+        response = self._request(
+            "POST",
+            "/v1/daemon/shutdown",
+            json={"instance_token": instance_token},
         )
         response.raise_for_status()
         body: dict[str, Any] = response.json()

@@ -80,6 +80,7 @@ def create_app(
     extra_adapters: list[ChannelAdapter] | None = None,
     enable_ui: bool = False,
     public_url: str | None = None,
+    instance_token: str | None = None,
 ) -> FastAPI:
     """Build daemon app with a dedicated Engine/store/channel lifecycle."""
     cfg = settings or get_settings()
@@ -104,16 +105,20 @@ def create_app(
     registry.on_app_credentials_changed(lambda: app.state.telegram_app.cancel_login())
     app.state.ui_enabled = enable_ui
     app.state.public_url = public_url
+    app.state.instance_token = instance_token
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, Any]:
         reg: ChannelRegistry = request.app.state.channel_registry
-        return {
+        response: dict[str, Any] = {
             "status": "ok",
             "service": "pboy-daemon",
             "db_path": app.state.db_path,
             "channels": await reg.status(),
         }
+        if app.state.instance_token:
+            response["instance_token"] = app.state.instance_token
+        return response
 
     @app.post(
         "/v1/events",
@@ -327,6 +332,34 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return SecretPutResponse(key=secret_key, stored=True)
+
+    @app.post("/v1/daemon/shutdown")
+    async def shutdown_daemon(request: Request) -> dict[str, Any]:
+        """Graceful daemon shutdown (loopback-only, requires instance_token)."""
+        token = app.state.instance_token
+        if not token:
+            raise HTTPException(status_code=503, detail="Daemon has no instance token")
+        
+        try:
+            body = await request.json()
+            provided_token = body.get("instance_token", "")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Missing instance_token in request body")
+        
+        if provided_token != token:
+            raise HTTPException(status_code=403, detail="Invalid instance_token")
+        
+        logger.info("Graceful shutdown requested via API")
+        
+        import asyncio
+        import signal
+        
+        async def _delayed_shutdown() -> None:
+            await asyncio.sleep(0.5)
+            os.kill(os.getpid(), signal.SIGTERM)
+        
+        asyncio.create_task(_delayed_shutdown())
+        return {"status": "shutdown_requested"}
 
     if enable_ui:
         from fastapi.responses import RedirectResponse

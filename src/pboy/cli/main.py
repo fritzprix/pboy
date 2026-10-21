@@ -175,24 +175,122 @@ def _resolve_event_id_or_exit(event_id: str | None) -> str:
 
 
 # ── Daemon / Status ──────────────────────────────────────────────────────────
-@app.command("daemon")
-def daemon_cmd(
+daemon_app = typer.Typer(
+    help="Start, stop, or manage the local Pageboy daemon.",
+    no_args_is_help=True,
+)
+app.add_typer(daemon_app, name="daemon")
+
+
+@daemon_app.command("start")
+def daemon_start_cmd(
     ui: Annotated[bool, typer.Option("--ui", help="Start embedded web dashboard")] = False,
     host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = DEFAULT_PORT,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
-    allow_dual_daemon: Annotated[
-        bool,
-        typer.Option(
-            "--allow-dual-daemon",
-            help="Allow starting on default port while :8080 daemon runs (testing only)",
-        ),
-    ] = False,
 ) -> None:
     """Start local daemon HTTP API (optional ``--ui`` dashboard at ``/ui``)."""
     from pboy.daemon.server import run_daemon
 
-    run_daemon(host=host, port=port, db=db, ui=ui, allow_dual_daemon=allow_dual_daemon)
+    run_daemon(host=host, port=port, db=db, ui=ui)
+
+
+@daemon_app.callback(invoke_without_command=True)
+def daemon_cmd(
+    ctx: typer.Context,
+    ui: Annotated[bool, typer.Option("--ui", help="Start embedded web dashboard")] = False,
+    host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = DEFAULT_PORT,
+    db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
+) -> None:
+    """Start local daemon HTTP API (optional ``--ui`` dashboard at ``/ui``).
+
+    This is the default action when no subcommand is provided. Use `pboy daemon stop`
+    to stop a running daemon.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    from pboy.daemon.server import run_daemon
+
+    run_daemon(host=host, port=port, db=db, ui=ui)
+
+
+@daemon_app.command("stop")
+def daemon_stop_cmd(
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Force kill if graceful shutdown times out"),
+    ] = False,
+    timeout: Annotated[
+        float,
+        typer.Option("--timeout", help="Graceful shutdown timeout in seconds"),
+    ] = 10.0,
+) -> None:
+    """Stop the running daemon gracefully (verified by instance token)."""
+    import os
+    import signal
+    import time
+    
+    from pboy.core.config import get_settings
+    from pboy.daemon.runtime import DaemonRuntimeFile
+    
+    settings = get_settings()
+    runtime = DaemonRuntimeFile(settings.data_dir)
+    info = runtime.read_if_alive()
+    
+    if not info:
+        typer.echo("No daemon is currently running.")
+        runtime.cleanup()
+        raise typer.Exit(code=0)
+    
+    typer.echo(f"Stopping daemon at {info.base_url} (PID {info.pid})...")
+    
+    try:
+        client = DaemonClient(info.base_url)
+        client.shutdown(info.instance_token)
+        typer.echo("Shutdown requested, waiting for daemon to exit...")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            typer.echo("Error: instance token mismatch (daemon was restarted?)", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"Warning: shutdown request failed: {exc}", err=True)
+    except httpx.ConnectError:
+        typer.echo("Daemon is not responding (may have already stopped).")
+    except Exception as exc:
+        typer.echo(f"Warning: shutdown request failed: {exc}", err=True)
+    
+    if runtime.wait_for_lock_release(timeout=timeout):
+        typer.echo("Daemon stopped successfully.")
+        runtime.cleanup()
+        raise typer.Exit(code=0)
+    
+    typer.echo(f"Daemon did not stop within {timeout}s timeout.", err=True)
+    
+    if not force:
+        typer.echo(
+            "Use --force to send SIGTERM to the daemon process.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    
+    try:
+        os.kill(info.pid, signal.SIGTERM if sys.platform != "win32" else signal.CTRL_C_EVENT)  # type: ignore[attr-defined]
+        typer.echo(f"Sent SIGTERM to PID {info.pid}...")
+        
+        if runtime.wait_for_lock_release(timeout=5.0):
+            typer.echo("Daemon stopped (forced).")
+            runtime.cleanup()
+            raise typer.Exit(code=0)
+        
+        typer.echo(f"Warning: daemon PID {info.pid} did not exit after SIGTERM.", err=True)
+        raise typer.Exit(code=1)
+    except ProcessLookupError:
+        typer.echo("Daemon process no longer exists (PID reused?).", err=True)
+        runtime.cleanup()
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        typer.echo(f"Error sending signal to PID {info.pid}: {exc}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command("ui")
@@ -200,13 +298,6 @@ def ui_cmd(
     host: Annotated[str, typer.Option("--host", help="Bind host (loopback only)")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", "-p", help="Web dashboard port")] = DEFAULT_PORT,
     db: Annotated[str | None, typer.Option("--db", help="SQLite database URL or path")] = None,
-    allow_dual_daemon: Annotated[
-        bool,
-        typer.Option(
-            "--allow-dual-daemon",
-            help="Allow starting on default port while :8080 daemon runs (testing only)",
-        ),
-    ] = False,
 ) -> None:
     """Launch the daemon with the embedded web dashboard (``/ui`` and ``/ui/settings``).
 
@@ -220,7 +311,7 @@ def ui_cmd(
     if probe_daemon(url):
         typer.echo(f"Daemon already running at {url}/ui")
         raise typer.Exit(code=0)
-    run_daemon(host=host, port=port, db=db, ui=True, allow_dual_daemon=allow_dual_daemon)
+    run_daemon(host=host, port=port, db=db, ui=True)
 
 
 @app.command("mcp")
