@@ -3,23 +3,43 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 import httpx
 
+from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT
+from pboy.core.probe import probe_daemon_alive
 from pboy.models.cloudevent import CloudEvent
 from pboy.models.hook import Hook, HookCreate
 
-DEFAULT_DAEMON_URL = "http://127.0.0.1:8080"
+DEFAULT_DAEMON_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
+# Previous default (≤0.3.4) before the 8080 → 17680 move; probe for migration hints only.
+LEGACY_DAEMON_URL = f"http://{DEFAULT_HOST}:8080"
+_legacy_daemon_hint_emitted: bool = False
+
+# Back-compat alias for tests / callers that patch `_probe_daemon_alive`.
+_probe_daemon_alive = probe_daemon_alive
 
 
-def _probe_daemon_alive(url: str, timeout: float = 0.15) -> bool:
-    """Return True if a Pageboy daemon is responding at ``url/healthz``."""
-    try:
-        res = httpx.get(f"{url.rstrip('/')}/healthz", timeout=timeout)
-        return res.status_code == 200 and res.json().get("service") == "pboy-daemon"
-    except Exception:
-        return False
+def suppress_legacy_daemon_hint() -> None:
+    """Skip the one-shot :8080 migration Hint (e.g. after ensure already reused it)."""
+    global _legacy_daemon_hint_emitted
+    _legacy_daemon_hint_emitted = True
+
+
+def _notify_legacy_daemon_reuse() -> None:
+    """Print a one-time notice when the CLI reuses a legacy :8080 daemon."""
+    global _legacy_daemon_hint_emitted
+    if _legacy_daemon_hint_emitted or DEFAULT_PORT == 8080:
+        return
+    _legacy_daemon_hint_emitted = True
+    print(
+        f"Notice: connecting to Pageboy daemon at {LEGACY_DAEMON_URL} "
+        f"(default is now {DEFAULT_DAEMON_URL}). "
+        f"Restart the daemon on port {DEFAULT_PORT} to use the new default.",
+        file=sys.stderr,
+    )
 
 
 def resolve_daemon_url(
@@ -27,7 +47,12 @@ def resolve_daemon_url(
     *,
     auto_probe: bool = True,
 ) -> str | None:
-    """Return explicit ``--daemon-url``, or auto-probe ``http://127.0.0.1:8080`` if running."""
+    """Return explicit ``--daemon-url``, or auto-probe the default daemon URL if running.
+
+    When the default port is not serving and a legacy :8080 daemon is found, returns
+    the legacy URL (with a one-time notice) to prevent split-brain: CLI writes must
+    reach the same store as the running daemon.
+    """
     if cli_url and cli_url.strip():
         return cli_url.strip().rstrip("/")
     if not auto_probe:
@@ -37,6 +62,10 @@ def resolve_daemon_url(
         return None
     if _probe_daemon_alive(DEFAULT_DAEMON_URL):
         return DEFAULT_DAEMON_URL
+    # Reuse legacy :8080 daemon to avoid split-brain (consistent with ensure_daemon_url).
+    if DEFAULT_PORT != 8080 and _probe_daemon_alive(LEGACY_DAEMON_URL):
+        _notify_legacy_daemon_reuse()
+        return LEGACY_DAEMON_URL
     return None
 
 

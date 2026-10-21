@@ -18,8 +18,8 @@ from httpx import ASGITransport, AsyncClient
 from typer.testing import CliRunner
 
 import pboy.core.config as config_mod
-from pboy.cli.daemon_client import DaemonClient, resolve_daemon_url
-from pboy.core.config import Settings
+from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, DaemonClient, resolve_daemon_url
+from pboy.core.config import DEFAULT_PORT, Settings
 from pboy.daemon.app import create_app
 from pboy.daemon.server import _public_daemon_url
 from pboy.models.cloudevent import CloudEvent
@@ -45,23 +45,56 @@ def test_resolve_daemon_url_cli_flag_and_auto_probe(monkeypatch: pytest.MonkeyPa
     import pboy.cli.daemon_client as dc_mod
 
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    # When no daemon is running at all, returns None:
     monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
     assert resolve_daemon_url() is None
     assert resolve_daemon_url("  http://127.0.0.1:9999/  ") == "http://127.0.0.1:9999"
 
     # When default daemon is alive and no custom PB_DATABASE_URL is set, auto-connects:
     monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: True)
-    assert resolve_daemon_url() == "http://127.0.0.1:8080"
+    assert resolve_daemon_url() == DEFAULT_DAEMON_URL
 
     # Explicit PB_DATABASE_URL disables implicit auto-probe unless --daemon-url is given:
     monkeypatch.setenv("PB_DATABASE_URL", "/tmp/custom.db")
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
     assert resolve_daemon_url() is None
-    assert resolve_daemon_url("http://127.0.0.1:8080") == "http://127.0.0.1:8080"
+    assert resolve_daemon_url(DEFAULT_DAEMON_URL) == DEFAULT_DAEMON_URL
+
+
+def test_resolve_daemon_url_reuses_legacy_8080(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Upgrade scenario: default port not running, legacy :8080 is up → reuse it."""
+    import pboy.cli.daemon_client as dc_mod
+    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
+
+    def fake_probe(url: str, timeout: float = 0.15) -> bool:
+        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
+
+    # Should return the legacy URL, not None
+    result = resolve_daemon_url()
+    assert result == LEGACY_DAEMON_URL
+
+    # Should print a notice
+    err = capsys.readouterr().err
+    assert "Notice:" in err
+    assert LEGACY_DAEMON_URL in err
+    assert DEFAULT_DAEMON_URL in err
+
+    # Once per process — second resolve must not reprint the notice
+    result2 = resolve_daemon_url()
+    assert result2 == LEGACY_DAEMON_URL
+    assert capsys.readouterr().err == ""
 
 
 def test_public_daemon_url_for_loopback_bind() -> None:
-    assert _public_daemon_url("127.0.0.1", 8080) == "http://127.0.0.1:8080"
-    assert _public_daemon_url("::1", 8080) == "http://[::1]:8080"
+    assert _public_daemon_url("127.0.0.1", DEFAULT_PORT) == DEFAULT_DAEMON_URL
+    assert _public_daemon_url("::1", DEFAULT_PORT) == f"http://[::1]:{DEFAULT_PORT}"
 
 
 def test_cli_package_does_not_shadow_main_module() -> None:
@@ -312,4 +345,249 @@ def test_cli_state_uses_sqlite_when_daemon_not_running(
     get_res = cli_runner.invoke(cli_main.app, ["state", "get", "evt_local"])
     assert get_res.exit_code == 0
     assert "running" in get_res.output
+
+
+def test_cli_hook_register_warns_on_local_sqlite_fallback(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    import pboy.cli.daemon_client as dc_mod
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    cfg = Settings(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data", secret_key="cli-warn")
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    res = cli_runner.invoke(
+        cli_main.app,
+        [
+            "hook",
+            "register",
+            "--name",
+            "offline-hook",
+            "--topic",
+            "telegram:message",
+            "--exec",
+            "echo 1",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert "Warning: no daemon at" in res.output
+    assert DEFAULT_DAEMON_URL in res.output
+    assert "--daemon-url" in res.output
+
+
+def test_cli_channel_enable_warns_on_local_sqlite_fallback(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    import pboy.cli.daemon_client as dc_mod
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    cfg = Settings(config_dir=tmp_path / "cfg", data_dir=tmp_path / "data", secret_key="cli-ch-warn")
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    res = cli_runner.invoke(cli_main.app, ["channel", "enable", "telegram"])
+    assert res.exit_code == 0, res.output
+    assert "Warning: no daemon at" in res.output
+    assert DEFAULT_DAEMON_URL in res.output
+
+
+def test_cli_hook_register_skips_warn_when_pb_database_url_set(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    import pboy.cli.daemon_client as dc_mod
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
+    db_path = tmp_path / "explicit.db"
+    monkeypatch.setenv("PB_DATABASE_URL", str(db_path))
+    cfg = Settings(
+        config_dir=tmp_path / "cfg",
+        data_dir=tmp_path / "data",
+        secret_key="cli-db-url",
+        database_url=str(db_path),
+    )
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    res = cli_runner.invoke(
+        cli_main.app,
+        [
+            "hook",
+            "register",
+            "--name",
+            "db-url-hook",
+            "--topic",
+            "telegram:message",
+            "--exec",
+            "echo 1",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert "Warning: no daemon at" not in res.output
+
+
+def test_upgrade_scenario_hook_register_hits_legacy_daemon(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    """Upgrade from 0.4.0: daemon on :8080, CLI must connect to it, not local SQLite."""
+    import pboy.cli.daemon_client as dc_mod
+    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
+    cfg = Settings(
+        config_dir=tmp_path / "cfg",
+        data_dir=tmp_path / "data",
+        secret_key="upgrade-test",
+    )
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    created_hooks: list[HookCreate] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str) -> None:
+            assert base_url == LEGACY_DAEMON_URL, f"Expected {LEGACY_DAEMON_URL}, got {base_url}"
+
+        def create_hook(self, data: HookCreate) -> Hook:
+            created_hooks.append(data)
+            return Hook(**data.model_dump())
+
+    def fake_probe(url: str, timeout: float = 0.15) -> bool:
+        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
+    monkeypatch.setattr(cli_main, "DaemonClient", FakeClient)
+
+    res = cli_runner.invoke(
+        cli_main.app,
+        [
+            "hook",
+            "register",
+            "--name",
+            "upgrade-hook",
+            "--topic",
+            "telegram:message",
+            "--exec",
+            "echo 1",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert created_hooks and created_hooks[0].name == "upgrade-hook"
+    assert "Notice:" in res.output
+    assert LEGACY_DAEMON_URL in res.output
+
+
+def test_upgrade_scenario_explicit_daemon_url_takes_precedence(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    """Explicit --daemon-url must override legacy auto-connect."""
+    import pboy.cli.daemon_client as dc_mod
+    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+
+    monkeypatch.delenv("PB_DATABASE_URL", raising=False)
+    cfg = Settings(
+        config_dir=tmp_path / "cfg",
+        data_dir=tmp_path / "data",
+        secret_key="explicit-url",
+    )
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    created_hooks: list[HookCreate] = []
+
+    class FakeClient:
+        def __init__(self, base_url: str) -> None:
+            assert base_url == "http://127.0.0.1:9999", f"Expected custom URL, got {base_url}"
+
+        def create_hook(self, data: HookCreate) -> Hook:
+            created_hooks.append(data)
+            return Hook(**data.model_dump())
+
+    def fake_probe(url: str, timeout: float = 0.15) -> bool:
+        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
+    monkeypatch.setattr(cli_main, "DaemonClient", FakeClient)
+
+    res = cli_runner.invoke(
+        cli_main.app,
+        [
+            "hook",
+            "register",
+            "--daemon-url",
+            "http://127.0.0.1:9999",
+            "--name",
+            "custom-hook",
+            "--topic",
+            "telegram:message",
+            "--exec",
+            "echo 1",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert created_hooks and created_hooks[0].name == "custom-hook"
+
+
+def test_upgrade_scenario_pb_database_url_takes_precedence(
+    cli_runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_settings: None,
+) -> None:
+    """PB_DATABASE_URL must override legacy auto-connect, hitting local SQLite."""
+    import pboy.cli.daemon_client as dc_mod
+    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+
+    db_path = tmp_path / "explicit.db"
+    monkeypatch.setenv("PB_DATABASE_URL", str(db_path))
+    cfg = Settings(
+        config_dir=tmp_path / "cfg",
+        data_dir=tmp_path / "data",
+        secret_key="db-url-precedence",
+        database_url=str(db_path),
+    )
+    cfg.ensure_dirs()
+    monkeypatch.setattr(config_mod, "_settings", cfg)
+
+    def fake_probe(url: str, timeout: float = 0.15) -> bool:
+        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
+
+    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
+
+    res = cli_runner.invoke(
+        cli_main.app,
+        [
+            "hook",
+            "register",
+            "--name",
+            "db-url-hook",
+            "--topic",
+            "telegram:message",
+            "--exec",
+            "echo 1",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    # Should NOT connect to daemon
+    assert "Notice:" not in res.output
+    # Should NOT warn about split-brain (PB_DATABASE_URL is intentional)
+    assert "Warning: no daemon at" not in res.output
 

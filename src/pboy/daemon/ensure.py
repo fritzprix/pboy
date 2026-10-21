@@ -19,8 +19,13 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from pboy.cli.daemon_client import DEFAULT_DAEMON_URL, _probe_daemon_alive
-from pboy.core.config import get_settings
+from pboy.cli.daemon_client import (
+    DEFAULT_DAEMON_URL,
+    LEGACY_DAEMON_URL,
+    suppress_legacy_daemon_hint,
+)
+from pboy.core.config import DEFAULT_HOST, DEFAULT_PORT, get_settings
+from pboy.core.probe import probe_daemon_alive
 from pboy.daemon.server import _public_daemon_url, assert_loopback_bind
 
 
@@ -39,10 +44,10 @@ class EnsureDaemonError(RuntimeError):
 
 def probe_daemon(url: str, *, timeout: float = 0.3) -> bool:
     """Return True if a Pageboy daemon answers ``/healthz`` at ``url``."""
-    return _probe_daemon_alive(url, timeout=timeout)
+    return probe_daemon_alive(url, timeout=timeout)
 
 
-def daemon_base_url(host: str = "127.0.0.1", port: int = 8080) -> str:
+def daemon_base_url(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> str:
     """Loopback HTTP base URL for the given bind."""
     return _public_daemon_url(host, port)
 
@@ -51,15 +56,15 @@ def parse_daemon_url(url: str) -> tuple[str, int]:
     """Extract host and port from an HTTP daemon URL."""
     cleaned = url.strip().rstrip("/")
     parsed = urlparse(cleaned if "://" in cleaned else f"http://{cleaned}")
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or 8080
+    host = parsed.hostname or DEFAULT_HOST
+    port = parsed.port or DEFAULT_PORT
     return host, port
 
 
 def ensure_daemon(
     *,
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
     db: str | Path | None = None,
     ui: bool = True,
     wait_seconds: float = 30.0,
@@ -100,15 +105,36 @@ def ensure_daemon_url(
     ui: bool = True,
     wait_seconds: float = 30.0,
 ) -> EnsureDaemonResult:
-    """Ensure daemon at ``daemon_url`` or the default ``http://127.0.0.1:8080``."""
+    """Ensure daemon at ``daemon_url`` or the default loopback URL.
+
+    When no explicit URL is given and the default port is not already serving,
+    a leftover daemon on the previous default port (:8080) is reused instead of
+    spawning a second process (avoids dual Telegram pollers on one DB).
+    """
     if daemon_url and daemon_url.strip():
         host, port = parse_daemon_url(daemon_url)
     else:
-        host, port = "127.0.0.1", 8080
+        host, port = DEFAULT_HOST, DEFAULT_PORT
         # Match CLI default when settings override port.
         settings = get_settings()
         host = settings.host or host
         port = settings.port if settings.port else port
+        if (
+            port == DEFAULT_PORT
+            and DEFAULT_DAEMON_URL != LEGACY_DAEMON_URL
+            and not probe_daemon(daemon_base_url(host, port))
+            and probe_daemon(LEGACY_DAEMON_URL)
+        ):
+            msg = (
+                f"Reusing legacy Pageboy daemon at {LEGACY_DAEMON_URL} "
+                f"(default is now {DEFAULT_DAEMON_URL}); not spawning a second "
+                f"daemon on port {DEFAULT_PORT}. Restart on {DEFAULT_PORT} when ready."
+            )
+            logger.warning("{}", msg)
+            print(msg, file=sys.stderr)
+            # Avoid a second stderr line from resolve_daemon_url's migration Hint.
+            suppress_legacy_daemon_hint()
+            return EnsureDaemonResult(url=LEGACY_DAEMON_URL, started=False)
     return ensure_daemon(
         host=host, port=port, db=db, ui=ui, wait_seconds=wait_seconds
     )

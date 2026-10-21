@@ -27,7 +27,7 @@ pboy channel list
 # • telegram [enabled, stopped, secret=yes]   # until the daemon starts it
 ```
 
-While the daemon runs on `127.0.0.1:8080`, `pboy channel …` talks to its HTTP API and can
+While the daemon runs on `127.0.0.1:17680`, `pboy channel …` talks to its HTTP API and can
 start/stop adapters live. For a custom port, pass `--daemon-url http://127.0.0.1:<port>`.
 
 ## Telegram
@@ -45,7 +45,7 @@ start/stop adapters live. For a custom port, pass `--daemon-url http://127.0.0.1
 3. Start the daemon (it uses the same DB as the CLI):
 
    ```bash
-   pboy daemon --host 127.0.0.1 --port 8080
+   pboy daemon --host 127.0.0.1 --port 17680
    # /healthz → channels.running includes "telegram"
    ```
 

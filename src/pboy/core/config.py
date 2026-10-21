@@ -10,6 +10,10 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Loopback bind defaults. 17680 avoids common local stacks on 8080/8000/3000/5000.
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 17680
+
 
 class Settings(BaseSettings):
     """Pageboy daemon & client settings."""
@@ -21,8 +25,8 @@ class Settings(BaseSettings):
     )
 
     # Server
-    host: str = "127.0.0.1"
-    port: int = 8080
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
 
     # Database
     database_url: str | None = None

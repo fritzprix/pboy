@@ -31,13 +31,13 @@ chat message ──▶ event ──▶ matching hook runs ──▶ event reply 
 uvx pboy ui            # starts the daemon + dashboard (pin a version: uvx pboy@0.2.0 ui)
 ```
 
-Open <http://127.0.0.1:8080/ui>. There is no login; it only accepts local connections.
+Open <http://127.0.0.1:17680/ui>. There is no login; it only accepts local connections.
 Leave this running and use a second terminal for the CLI. The CLI finds the running daemon automatically.
 
 ## First scenario: Telegram echo
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and copy its token.
-2. In <http://127.0.0.1:8080/ui/settings>, save the token, press **Enable**, then **pair your chat**.
+2. In <http://127.0.0.1:17680/ui/settings>, save the token, press **Enable**, then **pair your chat**.
    > Until you pair a chat (or set an allowlist), **any** Telegram chat can trigger your hooks.
 3. Register a hook:
 
@@ -184,13 +184,13 @@ Tools: `list_events`, `get_event`, `reply_event`, `list_hooks`, `register_hook`,
 
 ## HTTP API
 
-While the daemon is running, interactive docs are at <http://127.0.0.1:8080/docs>
+While the daemon is running, interactive docs are at <http://127.0.0.1:17680/docs>
 (schema: `/openapi.json`).
 
 Inject an event (Telegram-shaped payload):
 
 ```bash
-curl -X POST http://127.0.0.1:8080/v1/events \
+curl -X POST http://127.0.0.1:17680/v1/events \
   -H 'Content-Type: application/json' \
   -d '{
     "source": "telegram",
@@ -208,7 +208,7 @@ curl -X POST http://127.0.0.1:8080/v1/events \
 Complete an event. Over HTTP, `sync` is a JSON array; the CLI's `--sync` is comma-separated:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/v1/events/<event_id>/complete \
+curl -X POST http://127.0.0.1:17680/v1/events/<event_id>/complete \
   -H 'Content-Type: application/json' \
   -d '{"summary": "Resolved", "sync": ["telegram"]}'
 ```
