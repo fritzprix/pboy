@@ -17,7 +17,9 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 **Release process:** see [`docs/releasing.md`](docs/releasing.md).  
 **Alpha classifiers** stay until an explicit decision to leave Alpha (not tied to the first PyPI publish).
 
-## [Unreleased] — 0.5.0
+## [Unreleased]
+
+## [0.5.0] — 2026-10-21
 
 **Breaking changes:** Port-based daemon discovery has been replaced with a runtime file using OS locks. The legacy `:8080` migration shims from 0.4.1 have been removed.
 
@@ -216,7 +218,8 @@ First publishable Alpha.
 - Jira/Confluence: agent REST from harness (no required webhook ChannelAdapter)
 - Schema migrations deferred until a real installed base needs them
 
-[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/fritzprix/pboy/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/fritzprix/pboy/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/fritzprix/pboy/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/fritzprix/pboy/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/fritzprix/pboy/compare/v0.3.2...v0.3.3
