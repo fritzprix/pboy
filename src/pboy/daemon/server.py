@@ -53,9 +53,10 @@ def _check_legacy_daemon_conflict(port: int, *, allow_dual: bool = False) -> Non
         f"Starting a second daemon on {DEFAULT_DAEMON_URL} would cause both to share "
         f"one SQLite DB and double-poll channels (e.g. Telegram, Slack).\n\n"
         f"Solutions:\n"
-        f"  1. Stop the :8080 daemon and restart this one: pboy daemon\n"
-        f"  2. Connect to the :8080 daemon: pboy ui --daemon-url {LEGACY_DAEMON_URL}\n"
-        f"  3. Override this check (testing only): pboy daemon --allow-dual-daemon"
+        f"  1. Stop the :8080 daemon and restart on {DEFAULT_PORT}: pboy daemon\n"
+        f"  2. Access the existing daemon's UI: {LEGACY_DAEMON_URL}/ui\n"
+        f"  3. Start on the legacy port: pboy ui --port 8080\n"
+        f"  4. Override this check (testing only): pboy daemon --allow-dual-daemon"
     )
     logger.error("{}", msg)
     print(msg, file=sys.stderr)
