@@ -42,21 +42,17 @@ def reset_settings(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
 
 
 def test_resolve_daemon_url_cli_flag_and_auto_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    import pboy.cli.daemon_client as dc_mod
 
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
-    # When no daemon is running at all, returns None:
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
+
+    # When no daemon is running at all (no runtime file), returns None:
     assert resolve_daemon_url() is None
+
+    # Explicit --daemon-url always wins:
     assert resolve_daemon_url("  http://127.0.0.1:9999/  ") == "http://127.0.0.1:9999"
 
-    # When default daemon is alive and no custom PB_DATABASE_URL is set, auto-connects:
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: True)
-    assert resolve_daemon_url() == DEFAULT_DAEMON_URL
-
-    # Explicit PB_DATABASE_URL disables implicit auto-probe unless --daemon-url is given:
+    # Explicit PB_DATABASE_URL disables runtime file discovery unless --daemon-url is given:
     monkeypatch.setenv("PB_DATABASE_URL", "/tmp/custom.db")
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", lambda _url, timeout=0.15: False)
     assert resolve_daemon_url() is None
     assert resolve_daemon_url(DEFAULT_DAEMON_URL) == DEFAULT_DAEMON_URL
 
@@ -65,22 +61,21 @@ def test_resolve_daemon_url_discovers_via_runtime_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """resolve_daemon_url discovers daemon via runtime file when lock is held."""
-    import pboy.cli.daemon_client as dc_mod
     import pboy.core.config as config_mod
     from pboy.daemon.runtime import DaemonRuntimeFile
-    
+
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    
+
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
     monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
     monkeypatch.setattr(config_mod, "_settings", None)
-    
+
     runtime = DaemonRuntimeFile(data_dir)
-    
+
     with runtime.acquire_exclusive() as token:
         runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
-        
+
         def fake_httpx_get(url: str, *args, **kwargs):
             class FakeResponse:
                 status_code = 200
@@ -90,10 +85,10 @@ def test_resolve_daemon_url_discovers_via_runtime_file(
                         "instance_token": token,
                     }
             return FakeResponse()
-        
+
         import httpx
         monkeypatch.setattr(httpx, "get", fake_httpx_get)
-        
+
         result = resolve_daemon_url()
         assert result == "http://127.0.0.1:17680"
 
@@ -450,7 +445,6 @@ def test_hook_register_discovers_daemon_via_runtime_file(
     reset_settings: None,
 ) -> None:
     """CLI discovers daemon via runtime file when lock is held."""
-    import pboy.cli.daemon_client as dc_mod
     from pboy.daemon.runtime import DaemonRuntimeFile
 
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
@@ -473,12 +467,12 @@ def test_hook_register_discovers_daemon_via_runtime_file(
             return Hook(**data.model_dump())
 
     monkeypatch.setattr(cli_main, "DaemonClient", FakeClient)
-    
+
     runtime = DaemonRuntimeFile(cfg.data_dir)
-    
+
     with runtime.acquire_exclusive() as token:
         runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
-        
+
         def fake_httpx_get(url: str, *args, **kwargs):
             class FakeResponse:
                 status_code = 200
@@ -488,7 +482,7 @@ def test_hook_register_discovers_daemon_via_runtime_file(
                         "instance_token": token,
                     }
             return FakeResponse()
-        
+
         import httpx
         monkeypatch.setattr(httpx, "get", fake_httpx_get)
 
@@ -538,7 +532,7 @@ def test_explicit_daemon_url_overrides_runtime_file(
             return Hook(**data.model_dump())
 
     monkeypatch.setattr(cli_main, "DaemonClient", FakeClient)
-    
+
     runtime = DaemonRuntimeFile(cfg.data_dir)
     with runtime.acquire_exclusive() as token:
         runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)

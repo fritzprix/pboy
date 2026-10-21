@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
+import sys
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any, NoReturn, TypeVar
 
@@ -228,23 +230,21 @@ def daemon_stop_cmd(
 ) -> None:
     """Stop the running daemon gracefully (verified by instance token)."""
     import os
-    import signal
-    import time
-    
+
     from pboy.core.config import get_settings
     from pboy.daemon.runtime import DaemonRuntimeFile
-    
+
     settings = get_settings()
     runtime = DaemonRuntimeFile(settings.data_dir)
     info = runtime.read_if_alive()
-    
+
     if not info:
         typer.echo("No daemon is currently running.")
         runtime.cleanup()
         raise typer.Exit(code=0)
-    
+
     typer.echo(f"Stopping daemon at {info.base_url} (PID {info.pid})...")
-    
+
     try:
         client = DaemonClient(info.base_url)
         client.shutdown(info.instance_token)
@@ -252,45 +252,45 @@ def daemon_stop_cmd(
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 403:
             typer.echo("Error: instance token mismatch (daemon was restarted?)", err=True)
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from exc
         typer.echo(f"Warning: shutdown request failed: {exc}", err=True)
     except httpx.ConnectError:
         typer.echo("Daemon is not responding (may have already stopped).")
     except Exception as exc:
         typer.echo(f"Warning: shutdown request failed: {exc}", err=True)
-    
+
     if runtime.wait_for_lock_release(timeout=timeout):
         typer.echo("Daemon stopped successfully.")
         runtime.cleanup()
         raise typer.Exit(code=0)
-    
+
     typer.echo(f"Daemon did not stop within {timeout}s timeout.", err=True)
-    
+
     if not force:
         typer.echo(
             "Use --force to send SIGTERM to the daemon process.",
             err=True,
         )
         raise typer.Exit(code=1)
-    
+
     try:
         os.kill(info.pid, signal.SIGTERM if sys.platform != "win32" else signal.CTRL_C_EVENT)  # type: ignore[attr-defined]
         typer.echo(f"Sent SIGTERM to PID {info.pid}...")
-        
+
         if runtime.wait_for_lock_release(timeout=5.0):
             typer.echo("Daemon stopped (forced).")
             runtime.cleanup()
             raise typer.Exit(code=0)
-        
+
         typer.echo(f"Warning: daemon PID {info.pid} did not exit after SIGTERM.", err=True)
         raise typer.Exit(code=1)
-    except ProcessLookupError:
+    except ProcessLookupError as exc:
         typer.echo("Daemon process no longer exists (PID reused?).", err=True)
         runtime.cleanup()
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
     except Exception as exc:
         typer.echo(f"Error sending signal to PID {info.pid}: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command("ui")

@@ -59,7 +59,7 @@ read-only” from chats/messages/download/export alone.
 
 - Dashboard/API: `{base_url}` (loopback only; no login). Interactive API docs:
   `{base_url}/docs`.
-- Start: `uvx pboy ui` or `pboy daemon --ui`.
+- Start: `uvx pboy ui` or `pboy daemon --ui` (default port ({default_port})).
 - Stop: `pboy daemon stop` (graceful shutdown verified by instance token).
 - CLI auto-discovers a running daemon via runtime file + OS lock (no flags needed,
   even on custom ports). Explicit `--daemon-url {base_url}` overrides.

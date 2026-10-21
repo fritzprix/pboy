@@ -90,7 +90,7 @@ class DaemonRuntimeFile:
         Raises RuntimeError if the lock is already held.
         """
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._lock_fh = open(self.lock_path, "a+", encoding="utf-8")
+        self._lock_fh = open(self.lock_path, "a+", encoding="utf-8")  # noqa: SIM115
         token = secrets.token_urlsafe(32)
         try:
             if not self._try_lock():

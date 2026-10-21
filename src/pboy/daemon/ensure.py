@@ -109,7 +109,7 @@ def ensure_daemon_url(
         settings = get_settings()
         runtime = DaemonRuntimeFile(settings.data_dir)
         info = runtime.read_if_alive()
-        
+
         if info:
             try:
                 import httpx
@@ -122,11 +122,11 @@ def ensure_daemon_url(
                             return EnsureDaemonResult(url=info.base_url, started=False)
             except Exception:
                 pass
-        
+
         host, port = DEFAULT_HOST, DEFAULT_PORT
         host = settings.host or host
         port = settings.port if settings.port else port
-    
+
     return ensure_daemon(
         host=host, port=port, db=db, ui=ui, wait_seconds=wait_seconds
     )

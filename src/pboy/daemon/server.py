@@ -56,9 +56,9 @@ def run_daemon(
     warn_removed_channel_env_vars()
     public_url = _public_daemon_url(actual_host, actual_port)
     ui_url = f"{public_url}/ui"
-    
+
     runtime = DaemonRuntimeFile(settings.data_dir)
-    
+
     try:
         with runtime.acquire_exclusive() as instance_token:
             app = create_app(
@@ -68,23 +68,23 @@ def run_daemon(
                 instance_token=instance_token,
             )
             runtime.write_info(actual_host, actual_port, public_url, instance_token)
-            
+
             logger.info(
                 "Starting pboy daemon on {}",
                 public_url,
             )
             if ui:
                 logger.info("UI URL: {}", ui_url)
-            
-            import signal
+
             import atexit
-            
+            import signal
+
             def cleanup_runtime() -> None:
                 runtime.cleanup()
-            
+
             atexit.register(cleanup_runtime)
             signal.signal(signal.SIGTERM, lambda sig, frame: cleanup_runtime())
-            
+
             try:
                 uvicorn.run(app, host=actual_host, port=actual_port, log_level=settings.log_level.lower())
             finally:

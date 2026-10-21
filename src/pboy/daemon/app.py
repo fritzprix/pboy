@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -339,26 +340,26 @@ def create_app(
         token = app.state.instance_token
         if not token:
             raise HTTPException(status_code=503, detail="Daemon has no instance token")
-        
+
         try:
             body = await request.json()
             provided_token = body.get("instance_token", "")
-        except Exception:
-            raise HTTPException(status_code=400, detail="Missing instance_token in request body")
-        
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Missing instance_token in request body") from exc
+
         if provided_token != token:
             raise HTTPException(status_code=403, detail="Invalid instance_token")
-        
+
         logger.info("Graceful shutdown requested via API")
-        
+
         import asyncio
         import signal
-        
+
         async def _delayed_shutdown() -> None:
             await asyncio.sleep(0.5)
             os.kill(os.getpid(), signal.SIGTERM)
-        
-        asyncio.create_task(_delayed_shutdown())
+
+        _task = asyncio.create_task(_delayed_shutdown())  # noqa: RUF006
         return {"status": "shutdown_requested"}
 
     if enable_ui:

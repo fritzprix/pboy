@@ -38,15 +38,15 @@ def resolve_daemon_url(
     # If an explicit PB_DATABASE_URL is set, the caller targets a specific local DB file.
     if os.environ.get("PB_DATABASE_URL", "").strip():
         return None
-    
+
     from pboy.daemon.runtime import DaemonRuntimeFile
-    
+
     settings = get_settings()
     runtime = DaemonRuntimeFile(settings.data_dir)
     info = runtime.read_if_alive()
     if not info:
         return None
-    
+
     try:
         res = httpx.get(f"{info.base_url}/healthz", timeout=0.5)
         if res.status_code == 200:
@@ -57,7 +57,7 @@ def resolve_daemon_url(
                     return info.base_url
     except Exception:
         pass
-    
+
     return None
 
 

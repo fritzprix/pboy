@@ -283,15 +283,21 @@ def test_run_daemon_exits_on_non_loopback_bind(
 def test_run_daemon_logs_ui_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from loguru import logger
 
+    import pboy.core.config as config_mod
     from pboy.daemon import server as server_mod
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config_mod, "_settings", None)
 
     logs: list[str] = []
     sink_id = logger.add(lambda msg: logs.append(str(msg)), format="{message}")
     try:
         monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
-        monkeypatch.setattr(server_mod, "probe_daemon_alive", lambda *_a, **_k: False)
-        server_mod.run_daemon(host="127.0.0.1", port=8080, db=tmp_path / "d.db", ui=True)
-        assert any("UI URL: http://127.0.0.1:8080/ui" in msg for msg in logs)
+        server_mod.run_daemon(host="127.0.0.1", port=17680, db=tmp_path / "d.db", ui=True)
+        assert any("UI URL: http://127.0.0.1:17680/ui" in msg for msg in logs)
     finally:
         logger.remove(sink_id)
 
@@ -302,24 +308,24 @@ def test_run_daemon_refuses_when_lock_held(
     """Second daemon cannot start when runtime file lock is held."""
     from pboy.daemon import server as server_mod
     from pboy.daemon.runtime import DaemonRuntimeFile
-    
+
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    
+
     monkeypatch.setattr(server_mod.uvicorn, "run", lambda *a, **k: None)
     monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
-    
+
     import pboy.core.config as config_mod
     monkeypatch.setattr(config_mod, "_settings", None)
-    
+
     runtime = DaemonRuntimeFile(data_dir)
-    
+
     with runtime.acquire_exclusive():
         with pytest.raises(SystemExit) as exc_info:
             server_mod.run_daemon(
                 host="127.0.0.1", port=17680, db=tmp_path / "d.db", ui=False
             )
-        
+
         assert exc_info.value.code == 1
         err = capsys.readouterr().err
         assert "lock held" in err

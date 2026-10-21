@@ -15,9 +15,7 @@ import uvicorn
 from typer.testing import CliRunner
 
 import pboy.core.config as config_mod
-from pboy.cli.daemon_client import DEFAULT_DAEMON_URL
 from pboy.cli.main import app
-from pboy.core.config import DEFAULT_PORT
 from pboy.daemon.app import create_app
 from pboy.daemon.ensure import (
     EnsureDaemonError,
@@ -194,23 +192,23 @@ def test_ensure_daemon_url_discovers_via_runtime_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """ensure_daemon_url discovers daemon via runtime file when lock is held."""
-    from pboy.daemon.runtime import DaemonRuntimeFile
     import pboy.core.config as config_mod
-    
+    from pboy.daemon.runtime import DaemonRuntimeFile
+
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    
+
     monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
     monkeypatch.setattr(config_mod, "_settings", None)
-    
+
     spawn = MagicMock()
     monkeypatch.setattr("pboy.daemon.ensure._spawn_daemon", spawn)
-    
+
     runtime = DaemonRuntimeFile(data_dir)
-    
+
     with runtime.acquire_exclusive() as token:
         runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
-        
+
         def fake_httpx_get(url: str, *args, **kwargs):
             class FakeResponse:
                 status_code = 200
@@ -220,10 +218,10 @@ def test_ensure_daemon_url_discovers_via_runtime_file(
                         "instance_token": token,
                     }
             return FakeResponse()
-        
+
         import httpx
         monkeypatch.setattr(httpx, "get", fake_httpx_get)
-        
+
         result = ensure_daemon_url(None)
         assert result == EnsureDaemonResult(url="http://127.0.0.1:17680", started=False)
         spawn.assert_not_called()
