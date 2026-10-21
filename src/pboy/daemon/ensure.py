@@ -123,6 +123,13 @@ def ensure_daemon_url(
             except Exception:
                 pass
 
+        # No valid runtime file daemon → check for legacy daemon (upgrade path)
+        from pboy.daemon.legacy import handle_legacy_daemon_conflict, probe_legacy_ports
+
+        legacy_info = probe_legacy_ports()
+        if legacy_info:
+            handle_legacy_daemon_conflict(legacy_info, context="ensure")
+
         host, port = DEFAULT_HOST, DEFAULT_PORT
         host = settings.host or host
         port = settings.port if settings.port else port

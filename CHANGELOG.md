@@ -19,14 +19,17 @@ Versioning follows [SemVer](https://semver.org/) (0.x = Alpha; breaking changes 
 
 ## [Unreleased] — 0.5.0
 
-**Breaking changes:** Port-based daemon discovery has been replaced with a runtime file using OS locks. The legacy `:8080` migration shims from 0.4.1 have been removed. Upgrade from 0.4.0 or earlier by stopping old daemons (`pkill -f 'pboy daemon'`) before starting the new version.
+**Breaking changes:** Port-based daemon discovery has been replaced with a runtime file using OS locks. The legacy `:8080` migration shims from 0.4.1 have been removed.
+
+**Upgrade from 0.4.x:** When 0.5.0+ detects a legacy daemon (0.4.x or earlier) without a runtime file, it blocks split-brain scenarios by refusing to fall back to SQLite or start a second daemon. On interactive terminals, you'll be prompted to stop the legacy daemon and continue. In non-interactive environments (CI, `pboy mcp` stdio, agents), set `PB_REPLACE_LEGACY_DAEMON=1` or stop it manually with `pboy daemon stop --legacy`.
 
 ### Added
 
 - **Runtime file-based daemon discovery** (#74): The daemon now writes a `daemon.json` file in the data directory and holds an exclusive OS lock (`fcntl.flock` on POSIX, `msvcrt.locking` on Windows) for its lifetime. Clients discover the daemon by reading this file and verifying the lock is still held plus the `/healthz` instance token matches. Liveness is decided by the OS lock, not file existence, so crash/power-loss scenarios work correctly.
-- **`pboy daemon stop` command** (#74): Gracefully stop the running daemon with token-verified shutdown. Waits for the lock to be released; `--force` sends SIGTERM to the verified PID if graceful shutdown times out.
+- **`pboy daemon stop` command** (#74): Gracefully stop the running daemon with token-verified shutdown. Waits for the lock to be released; `--force` sends SIGTERM to the verified PID if graceful shutdown times out. Supports `--legacy` flag to stop pre-0.5.0 daemons without runtime files.
 - **Instance token in `/healthz`** (#74): The daemon now returns a per-start `instance_token` in the `/healthz` response (loopback-only). Clients verify this token matches the runtime file to prevent connecting to stale daemons after a restart.
 - **`/v1/daemon/shutdown` endpoint** (#74): Loopback-only graceful shutdown endpoint requiring the instance token for authentication.
+- **Legacy daemon detection** (#74): When no valid runtime file exists, 0.5.0+ checks the old default ports (8080, 17680) for a running 0.4.x daemon. If found, it blocks split-brain scenarios by refusing to fall back to SQLite or start a second daemon. Interactive TTY: prompts to stop and continue. Non-interactive: requires `PB_REPLACE_LEGACY_DAEMON=1` env var or `pboy daemon stop --legacy` manual command. Process identification uses `psutil` for cross-platform PID verification.
 
 ### Changed
 

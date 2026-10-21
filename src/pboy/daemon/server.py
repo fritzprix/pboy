@@ -59,6 +59,13 @@ def run_daemon(
 
     runtime = DaemonRuntimeFile(settings.data_dir)
 
+    # Check for legacy daemon before trying to acquire lock
+    from pboy.daemon.legacy import handle_legacy_daemon_conflict, probe_legacy_ports
+
+    legacy_info = probe_legacy_ports()
+    if legacy_info:
+        handle_legacy_daemon_conflict(legacy_info, context="daemon start")
+
     try:
         with runtime.acquire_exclusive() as instance_token:
             app = create_app(

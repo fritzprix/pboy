@@ -29,7 +29,8 @@ def resolve_daemon_url(
     1. Explicit ``--daemon-url`` wins
     2. ``PB_DATABASE_URL`` env var → None (targets a specific local DB)
     3. Runtime file in data dir → verify lock + /healthz token
-    4. None (no daemon running)
+    4. Legacy daemon on old ports (upgrade path) → conflict error
+    5. None (no daemon running)
     """
     if cli_url and cli_url.strip():
         return cli_url.strip().rstrip("/")
@@ -44,19 +45,24 @@ def resolve_daemon_url(
     settings = get_settings()
     runtime = DaemonRuntimeFile(settings.data_dir)
     info = runtime.read_if_alive()
-    if not info:
-        return None
+    if info:
+        try:
+            res = httpx.get(f"{info.base_url}/healthz", timeout=0.5)
+            if res.status_code == 200:
+                body = res.json()
+                if body.get("service") == "pboy-daemon":
+                    token = body.get("instance_token", "")
+                    if token == info.instance_token:
+                        return info.base_url
+        except Exception:
+            pass
 
-    try:
-        res = httpx.get(f"{info.base_url}/healthz", timeout=0.5)
-        if res.status_code == 200:
-            body = res.json()
-            if body.get("service") == "pboy-daemon":
-                token = body.get("instance_token", "")
-                if token == info.instance_token:
-                    return info.base_url
-    except Exception:
-        pass
+    # No valid runtime file daemon → check for legacy daemon (upgrade path)
+    from pboy.daemon.legacy import handle_legacy_daemon_conflict, probe_legacy_ports
+
+    legacy_info = probe_legacy_ports()
+    if legacy_info:
+        handle_legacy_daemon_conflict(legacy_info, context="CLI")
 
     return None
 
