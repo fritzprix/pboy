@@ -74,7 +74,6 @@ Full steps: [`src/pboy/channels/README.md`](../src/pboy/channels/README.md).
 | `uvx pboy daemon --ui` | Same as first-time `ui`, explicit flags (foreground) |
 | `uvx pboy daemon stop` | Stop the running daemon gracefully (verified by instance token) |
 | `uvx pboy daemon stop --force` | Force stop with SIGTERM if graceful shutdown times out |
-| `uvx pboy daemon stop --legacy` | Stop a pre-0.5.0 daemon (without runtime file) on old default ports (8080, 17680) |
 | `uvx pboy mcp` | MCP stdio; ensures a daemon is up (spawns background `--ui` if needed, does not stop it) |
 
 Defaults: `--host 127.0.0.1` `--port 17680`. Non-loopback bind is **refused**.
@@ -83,7 +82,7 @@ Pin a version: `uvx pboy@0.1.0 ui`.
 
 The daemon writes a runtime file (`~/.local/share/pboy/daemon.json`) with an OS lock. Only one daemon can run per data directory. Clients discover the daemon via this file + lock verification + `/healthz` instance token.
 
-**Upgrading from 0.4.x:** When 0.5.0+ detects a legacy daemon (0.4.x or earlier) without a runtime file, it prevents split-brain scenarios by refusing to start a second daemon. On interactive terminals, you'll be prompted to stop the legacy daemon and continue. In non-interactive environments (CI, `pboy mcp` stdio, agents), set `PB_REPLACE_LEGACY_DAEMON=1` or stop manually with `pboy daemon stop --legacy`.
+**Upgrading from 0.4.x:** When 0.5.0+ detects a legacy daemon (0.4.x or earlier) without a runtime file, it prevents split-brain scenarios by refusing to start a second daemon. All commands exit with an error and platform-specific manual stop guidance (find the process listening on the old port, verify it's pboy, then stop it).
 
 ### Data locations
 

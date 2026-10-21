@@ -227,43 +227,12 @@ def daemon_stop_cmd(
         float,
         typer.Option("--timeout", help="Graceful shutdown timeout in seconds"),
     ] = 10.0,
-    legacy: Annotated[
-        bool,
-        typer.Option("--legacy", help="Stop a legacy daemon (pre-0.5.0 without runtime file)"),
-    ] = False,
 ) -> None:
     """Stop the running daemon gracefully (verified by instance token)."""
     import os
 
     from pboy.core.config import get_settings
     from pboy.daemon.runtime import DaemonRuntimeFile
-
-    if legacy:
-        from pboy.daemon.legacy import probe_legacy_ports, stop_legacy_daemon
-
-        legacy_info = probe_legacy_ports()
-        if not legacy_info:
-            typer.echo("No legacy daemon found on old default ports (8080, 17680).")
-            raise typer.Exit(code=0)
-
-        version_str = f" (v{legacy_info.version})" if legacy_info.version else ""
-        pid_str = f" (PID {legacy_info.pid})" if legacy_info.pid else ""
-        typer.echo(f"Stopping legacy daemon{version_str} at {legacy_info.url}{pid_str}...")
-
-        try:
-            stopped = stop_legacy_daemon(legacy_info, force=force, timeout=timeout)
-        except RuntimeError as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(code=1) from exc
-
-        if stopped:
-            typer.echo("Legacy daemon stopped successfully.")
-            raise typer.Exit(code=0)
-
-        typer.echo(f"Legacy daemon did not stop within {timeout}s.", err=True)
-        if not force:
-            typer.echo("Use --force to send SIGKILL.", err=True)
-        raise typer.Exit(code=1)
 
     settings = get_settings()
     runtime = DaemonRuntimeFile(settings.data_dir)

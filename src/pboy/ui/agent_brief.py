@@ -61,7 +61,6 @@ read-only” from chats/messages/download/export alone.
   `{base_url}/docs`.
 - Start: `uvx pboy ui` or `pboy daemon --ui` (default port ({default_port})).
 - Stop: `pboy daemon stop` (graceful shutdown verified by instance token).
-- Stop legacy (0.4.x): `pboy daemon stop --legacy` (for daemons without runtime file).
 - CLI auto-discovers a running daemon via runtime file + OS lock (no flags needed,
   even on custom ports). Explicit `--daemon-url {base_url}` overrides.
 - MCP (stdio): `pboy mcp` — tools for list/get events, `reply_event`, hooks,
@@ -69,8 +68,8 @@ read-only” from chats/messages/download/export alone.
   writes. Starts the local daemon in the background if needed and leaves it
   running when MCP exits.
 - Only one daemon can run per data directory (enforced by OS lock on runtime file).
-- **Upgrade from 0.4.x:** If 0.5.0+ detects a legacy daemon, it prompts (interactive
-  TTY) or requires `PB_REPLACE_LEGACY_DAEMON=1` (non-interactive) to avoid split-brain.
+- **Upgrade from 0.4.x:** If 0.5.0+ detects a legacy daemon (0.4.x without runtime
+  file), all commands exit with an error and platform-specific manual stop guidance.
 - Do not reverse-proxy the daemon or bind non-loopback hosts.
 
 ## Telegram: two separate rails (do not conflate)

@@ -230,7 +230,6 @@ class DaemonRuntimeFile:
             self.runtime_path.unlink(missing_ok=True)
         with contextlib.suppress(OSError):
             self.lock_path.unlink(missing_ok=True)
-        logger.debug("Cleaned up runtime file: {}", self.runtime_path)
 
     def wait_for_lock_release(self, timeout: float = 10.0, poll_interval: float = 0.1) -> bool:
         """Wait until the lock is released or timeout. Return True if released."""

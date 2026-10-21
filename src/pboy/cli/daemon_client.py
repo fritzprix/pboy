@@ -58,11 +58,11 @@ def resolve_daemon_url(
             pass
 
     # No valid runtime file daemon → check for legacy daemon (upgrade path)
-    from pboy.daemon.legacy import handle_legacy_daemon_conflict, probe_legacy_ports
+    from pboy.daemon.legacy import probe_legacy_ports, raise_legacy_daemon_error
 
     legacy_info = probe_legacy_ports()
     if legacy_info:
-        handle_legacy_daemon_conflict(legacy_info, context="CLI")
+        raise_legacy_daemon_error(legacy_info)
 
     return None
 
