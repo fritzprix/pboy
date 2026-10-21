@@ -110,15 +110,24 @@ class DaemonRuntimeFile:
         if sys.platform == "win32":
             import msvcrt
 
-            self._lock_fh.seek(0)
-            if self._lock_fh.read(1) == "":
-                self._lock_fh.write("0")
-                self._lock_fh.flush()
-            self._lock_fh.seek(0)
+            # Ensure file has at least 1 byte before locking. Never read/write locked bytes.
+            # On Windows, msvcrt.locking creates mandatory locks: reading locked bytes raises PermissionError.
             try:
+                size = self._lock_fh.seek(0, 2)  # Seek to end to get size
+                if size == 0:
+                    self._lock_fh.write("L")
+                    self._lock_fh.flush()
+                self._lock_fh.seek(0)
+            except (OSError, PermissionError):
+                # Another process may have locked it between open and here
+                return False
+
+            try:
+                # Lock byte 0. msvcrt.locking creates mandatory locks on Windows.
                 msvcrt.locking(self._lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
                 return True
-            except OSError:
+            except (OSError, PermissionError):
+                # EACCES/EDEADLOCK or PermissionError: another process holds the lock
                 return False
         else:
             import fcntl
@@ -196,22 +205,28 @@ class DaemonRuntimeFile:
         if not self.lock_path.is_file():
             return False
         try:
-            with open(self.lock_path, "a+", encoding="utf-8") as fh:
-                if sys.platform == "win32":
-                    import msvcrt
+            if sys.platform == "win32":
+                import msvcrt
 
-                    fh.seek(0)
-                    if fh.read(1) == "":
-                        fh.write("0")
-                        fh.flush()
-                    fh.seek(0)
-                    try:
-                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                        return False
-                    except OSError:
-                        return True
-                else:
+                # On Windows, msvcrt.locking creates mandatory locks. Another process holding
+                # the lock will cause PermissionError when we try to read/write locked bytes,
+                # even though we can open the file.
+                try:
+                    with open(self.lock_path, "r+", encoding="utf-8") as fh:
+                        # Never read/write locked bytes. Just try to acquire and release the lock.
+                        fh.seek(0)
+                        try:
+                            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                            return False
+                        except (OSError, PermissionError):
+                            # EACCES/EDEADLOCK or PermissionError: lock is held
+                            return True
+                except (OSError, PermissionError):
+                    # Can't open or lock: assume held
+                    return True
+            else:
+                with open(self.lock_path, "a+", encoding="utf-8") as fh:
                     import fcntl
 
                     try:

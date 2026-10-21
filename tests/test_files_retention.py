@@ -79,7 +79,12 @@ def test_prune_skips_fresh_empty_dir_and_outside_symlink(tmp_path: Path) -> None
     past = now - 10_000
     os.utime(fresh_empty, (now, now))
     os.utime(old_empty, (past, past))
-    os.utime(link, (past, past), follow_symlinks=False)
+    # follow_symlinks is not supported on Windows
+    if os.utime in os.supports_follow_symlinks:
+        os.utime(link, (past, past), follow_symlinks=False)
+    else:
+        # On Windows, utime follows symlinks by default
+        os.utime(link, (past, past))
 
     result = prune_files_tree(
         files, older_than=timedelta(seconds=60), dry_run=False, now=now
