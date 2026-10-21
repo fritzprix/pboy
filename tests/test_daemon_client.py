@@ -61,35 +61,41 @@ def test_resolve_daemon_url_cli_flag_and_auto_probe(monkeypatch: pytest.MonkeyPa
     assert resolve_daemon_url(DEFAULT_DAEMON_URL) == DEFAULT_DAEMON_URL
 
 
-def test_resolve_daemon_url_reuses_legacy_8080(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_resolve_daemon_url_discovers_via_runtime_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Upgrade scenario: default port not running, legacy :8080 is up → reuse it."""
+    """resolve_daemon_url discovers daemon via runtime file when lock is held."""
     import pboy.cli.daemon_client as dc_mod
-    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
-
+    import pboy.core.config as config_mod
+    from pboy.daemon.runtime import DaemonRuntimeFile
+    
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
-    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
-
-    def fake_probe(url: str, timeout: float = 0.15) -> bool:
-        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
-
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
-
-    # Should return the legacy URL, not None
-    result = resolve_daemon_url()
-    assert result == LEGACY_DAEMON_URL
-
-    # Should print a notice
-    err = capsys.readouterr().err
-    assert "Notice:" in err
-    assert LEGACY_DAEMON_URL in err
-    assert DEFAULT_DAEMON_URL in err
-
-    # Once per process — second resolve must not reprint the notice
-    result2 = resolve_daemon_url()
-    assert result2 == LEGACY_DAEMON_URL
-    assert capsys.readouterr().err == ""
+    monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config_mod, "_settings", None)
+    
+    runtime = DaemonRuntimeFile(data_dir)
+    
+    with runtime.acquire_exclusive() as token:
+        runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
+        
+        def fake_httpx_get(url: str, *args, **kwargs):
+            class FakeResponse:
+                status_code = 200
+                def json(self):
+                    return {
+                        "service": "pboy-daemon",
+                        "instance_token": token,
+                    }
+            return FakeResponse()
+        
+        import httpx
+        monkeypatch.setattr(httpx, "get", fake_httpx_get)
+        
+        result = resolve_daemon_url()
+        assert result == "http://127.0.0.1:17680"
 
 
 def test_public_daemon_url_for_loopback_bind() -> None:
@@ -437,22 +443,21 @@ def test_cli_hook_register_skips_warn_when_pb_database_url_set(
     assert "Warning: no daemon at" not in res.output
 
 
-def test_upgrade_scenario_hook_register_hits_legacy_daemon(
+def test_hook_register_discovers_daemon_via_runtime_file(
     cli_runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     reset_settings: None,
 ) -> None:
-    """Upgrade from 0.4.0: daemon on :8080, CLI must connect to it, not local SQLite."""
+    """CLI discovers daemon via runtime file when lock is held."""
     import pboy.cli.daemon_client as dc_mod
-    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+    from pboy.daemon.runtime import DaemonRuntimeFile
 
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
-    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
     cfg = Settings(
         config_dir=tmp_path / "cfg",
         data_dir=tmp_path / "data",
-        secret_key="upgrade-test",
+        secret_key="runtime-test",
     )
     cfg.ensure_dirs()
     monkeypatch.setattr(config_mod, "_settings", cfg)
@@ -461,46 +466,57 @@ def test_upgrade_scenario_hook_register_hits_legacy_daemon(
 
     class FakeClient:
         def __init__(self, base_url: str) -> None:
-            assert base_url == LEGACY_DAEMON_URL, f"Expected {LEGACY_DAEMON_URL}, got {base_url}"
+            assert base_url == "http://127.0.0.1:17680"
 
         def create_hook(self, data: HookCreate) -> Hook:
             created_hooks.append(data)
             return Hook(**data.model_dump())
 
-    def fake_probe(url: str, timeout: float = 0.15) -> bool:
-        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
-
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
     monkeypatch.setattr(cli_main, "DaemonClient", FakeClient)
+    
+    runtime = DaemonRuntimeFile(cfg.data_dir)
+    
+    with runtime.acquire_exclusive() as token:
+        runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
+        
+        def fake_httpx_get(url: str, *args, **kwargs):
+            class FakeResponse:
+                status_code = 200
+                def json(self):
+                    return {
+                        "service": "pboy-daemon",
+                        "instance_token": token,
+                    }
+            return FakeResponse()
+        
+        import httpx
+        monkeypatch.setattr(httpx, "get", fake_httpx_get)
 
-    res = cli_runner.invoke(
-        cli_main.app,
-        [
-            "hook",
-            "register",
-            "--name",
-            "upgrade-hook",
-            "--topic",
-            "telegram:message",
-            "--exec",
-            "echo 1",
-        ],
-    )
-    assert res.exit_code == 0, res.output
-    assert created_hooks and created_hooks[0].name == "upgrade-hook"
-    assert "Notice:" in res.output
-    assert LEGACY_DAEMON_URL in res.output
+        res = cli_runner.invoke(
+            cli_main.app,
+            [
+                "hook",
+                "register",
+                "--name",
+                "runtime-hook",
+                "--topic",
+                "telegram:message",
+                "--exec",
+                "echo 1",
+            ],
+        )
+        assert res.exit_code == 0, res.output
+        assert created_hooks and created_hooks[0].name == "runtime-hook"
 
 
-def test_upgrade_scenario_explicit_daemon_url_takes_precedence(
+def test_explicit_daemon_url_overrides_runtime_file(
     cli_runner: CliRunner,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     reset_settings: None,
 ) -> None:
-    """Explicit --daemon-url must override legacy auto-connect."""
-    import pboy.cli.daemon_client as dc_mod
-    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+    """Explicit --daemon-url must override runtime file discovery."""
+    from pboy.daemon.runtime import DaemonRuntimeFile
 
     monkeypatch.delenv("PB_DATABASE_URL", raising=False)
     cfg = Settings(
@@ -521,29 +537,29 @@ def test_upgrade_scenario_explicit_daemon_url_takes_precedence(
             created_hooks.append(data)
             return Hook(**data.model_dump())
 
-    def fake_probe(url: str, timeout: float = 0.15) -> bool:
-        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
-
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
     monkeypatch.setattr(cli_main, "DaemonClient", FakeClient)
+    
+    runtime = DaemonRuntimeFile(cfg.data_dir)
+    with runtime.acquire_exclusive() as token:
+        runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
 
-    res = cli_runner.invoke(
-        cli_main.app,
-        [
-            "hook",
-            "register",
-            "--daemon-url",
-            "http://127.0.0.1:9999",
-            "--name",
-            "custom-hook",
-            "--topic",
-            "telegram:message",
-            "--exec",
-            "echo 1",
-        ],
-    )
-    assert res.exit_code == 0, res.output
-    assert created_hooks and created_hooks[0].name == "custom-hook"
+        res = cli_runner.invoke(
+            cli_main.app,
+            [
+                "hook",
+                "register",
+                "--daemon-url",
+                "http://127.0.0.1:9999",
+                "--name",
+                "custom-hook",
+                "--topic",
+                "telegram:message",
+                "--exec",
+                "echo 1",
+            ],
+        )
+        assert res.exit_code == 0, res.output
+        assert created_hooks and created_hooks[0].name == "custom-hook"
 
 
 def test_upgrade_scenario_pb_database_url_takes_precedence(
@@ -552,9 +568,8 @@ def test_upgrade_scenario_pb_database_url_takes_precedence(
     tmp_path: Path,
     reset_settings: None,
 ) -> None:
-    """PB_DATABASE_URL must override legacy auto-connect, hitting local SQLite."""
-    import pboy.cli.daemon_client as dc_mod
-    from pboy.cli.daemon_client import LEGACY_DAEMON_URL
+    """PB_DATABASE_URL must override runtime file discovery, hitting local SQLite."""
+    from pboy.daemon.runtime import DaemonRuntimeFile
 
     db_path = tmp_path / "explicit.db"
     monkeypatch.setenv("PB_DATABASE_URL", str(db_path))
@@ -567,27 +582,24 @@ def test_upgrade_scenario_pb_database_url_takes_precedence(
     cfg.ensure_dirs()
     monkeypatch.setattr(config_mod, "_settings", cfg)
 
-    def fake_probe(url: str, timeout: float = 0.15) -> bool:
-        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
+    runtime = DaemonRuntimeFile(cfg.data_dir)
+    with runtime.acquire_exclusive() as token:
+        runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
 
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
-
-    res = cli_runner.invoke(
-        cli_main.app,
-        [
-            "hook",
-            "register",
-            "--name",
-            "db-url-hook",
-            "--topic",
-            "telegram:message",
-            "--exec",
-            "echo 1",
-        ],
-    )
-    assert res.exit_code == 0, res.output
-    # Should NOT connect to daemon
-    assert "Notice:" not in res.output
-    # Should NOT warn about split-brain (PB_DATABASE_URL is intentional)
-    assert "Warning: no daemon at" not in res.output
+        res = cli_runner.invoke(
+            cli_main.app,
+            [
+                "hook",
+                "register",
+                "--name",
+                "db-url-hook",
+                "--topic",
+                "telegram:message",
+                "--exec",
+                "echo 1",
+            ],
+        )
+        assert res.exit_code == 0, res.output
+        # Should NOT connect to daemon
+        assert "db-url-hook" in res.output
 

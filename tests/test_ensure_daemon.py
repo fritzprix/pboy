@@ -190,34 +190,40 @@ def test_mcp_ensures_then_runs_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Started Pageboy daemon" in (res.stderr or res.output)
 
 
-def test_ensure_daemon_url_reuses_legacy_8080_instead_of_spawn(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_ensure_daemon_url_discovers_via_runtime_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import pboy.cli.daemon_client as dc_mod
-    from pboy.cli.daemon_client import LEGACY_DAEMON_URL, resolve_daemon_url
-
-    if DEFAULT_PORT == 8080:
-        pytest.skip("legacy attach only applies when default port is not 8080")
-
-    monkeypatch.setattr(dc_mod, "_legacy_daemon_hint_emitted", False)
+    """ensure_daemon_url discovers daemon via runtime file when lock is held."""
+    from pboy.daemon.runtime import DaemonRuntimeFile
+    import pboy.core.config as config_mod
+    
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    
+    monkeypatch.setenv("PB_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config_mod, "_settings", None)
+    
     spawn = MagicMock()
     monkeypatch.setattr("pboy.daemon.ensure._spawn_daemon", spawn)
-
-    def fake_probe(url: str, *, timeout: float = 0.3) -> bool:
-        return url.rstrip("/") == LEGACY_DAEMON_URL.rstrip("/")
-
-    monkeypatch.setattr("pboy.daemon.ensure.probe_daemon", fake_probe)
-    monkeypatch.setattr(dc_mod, "_probe_daemon_alive", fake_probe)
-    result = ensure_daemon_url(None)
-    assert result == EnsureDaemonResult(url=LEGACY_DAEMON_URL, started=False)
-    spawn.assert_not_called()
-    err = capsys.readouterr().err
-    assert "Reusing legacy" in err
-    assert LEGACY_DAEMON_URL in err
-    assert DEFAULT_DAEMON_URL in err
-    assert "Hint:" not in err
-
-    # Subsequent resolve must also return the legacy URL (consistent with ensure).
-    assert resolve_daemon_url() == LEGACY_DAEMON_URL
-    # Notice was already printed by ensure, so no duplicate output.
-    assert capsys.readouterr().err == ""
+    
+    runtime = DaemonRuntimeFile(data_dir)
+    
+    with runtime.acquire_exclusive() as token:
+        runtime.write_info("127.0.0.1", 17680, "http://127.0.0.1:17680", token)
+        
+        def fake_httpx_get(url: str, *args, **kwargs):
+            class FakeResponse:
+                status_code = 200
+                def json(self):
+                    return {
+                        "service": "pboy-daemon",
+                        "instance_token": token,
+                    }
+            return FakeResponse()
+        
+        import httpx
+        monkeypatch.setattr(httpx, "get", fake_httpx_get)
+        
+        result = ensure_daemon_url(None)
+        assert result == EnsureDaemonResult(url="http://127.0.0.1:17680", started=False)
+        spawn.assert_not_called()
