@@ -55,8 +55,7 @@ def _check_legacy_daemon_conflict(port: int, *, allow_dual: bool = False) -> Non
         f"Solutions:\n"
         f"  1. Stop the :8080 daemon and restart on {DEFAULT_PORT}: pboy daemon\n"
         f"  2. Access the existing daemon's UI: {LEGACY_DAEMON_URL}/ui\n"
-        f"  3. Start on the legacy port: pboy ui --port 8080\n"
-        f"  4. Override this check (testing only): pboy daemon --allow-dual-daemon"
+        f"  3. Override this check (testing only): pboy daemon --allow-dual-daemon"
     )
     logger.error("{}", msg)
     print(msg, file=sys.stderr)

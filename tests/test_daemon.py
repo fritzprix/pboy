@@ -328,8 +328,9 @@ def test_run_daemon_refuses_when_legacy_8080_also_running(
     # Verify all suggested commands are valid
     assert "pboy daemon" in err
     assert f"{LEGACY_DAEMON_URL}/ui" in err
-    assert "pboy ui --port 8080" in err
     assert "--allow-dual-daemon" in err
+    # Must NOT suggest starting another daemon on :8080 (would fail with address-in-use)
+    assert "--port 8080" not in err
 
 
 def test_run_daemon_allows_dual_with_explicit_flag(
